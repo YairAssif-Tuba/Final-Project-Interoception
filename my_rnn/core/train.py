@@ -251,6 +251,7 @@ class Trainer(object):
         self.rule_name = rule_name
         self.is_cuda = is_cuda
         self.use_piezo = hp.get('use_piezo', False) if hp is not None else False
+        self.use_insula = hp.get('use_insula', False) if hp is not None else False
 
         if is_cuda:
             self.device = torch.device("cuda")
@@ -288,8 +289,14 @@ class Trainer(object):
             piezo_info = self.model.get_piezo_info()
             print(f"   Connected receptors: {piezo_info['num_connected']}")
             print(f"   Trainable params: {piezo_info['trainable_params']} (connectivity only)")
+        elif self.use_insula:
+            print("🧠 Insula interface enabled (pretrained + frozen)")
+            print(f"   aINS units: {self.model.insula.n_aINS}")
+            print(f"   Projection: {self.model.insula.n_aINS} → {self.model.hidden_size}")
+            print(f"   Pooling: {self.hp.get('insula_pooling', 'max')}")
+            print(f"   Gate init: {self.hp.get('insula_gate_init', 0.2)}")
         else:
-            print("🚫 Standard training without piezo interface")
+            print("🚫 Standard training without heartbeat interface")
 
         # Initialize or load training logs
         self.log = tools.load_log(model_dir)
@@ -396,7 +403,9 @@ class Trainer(object):
             # Print cost information
             cost_str = '| cost {:0.6f}'.format(np.mean(clsq_tmp)) + '| c_reg {:0.6f}'.format(np.mean(creg_tmp))
             if self.use_piezo:
-                cost_str += ' | 🫀 SIMPLE'
+                cost_str += ' | 🫀 PIEZO'
+            elif self.use_insula:
+                cost_str += ' | 🧠 INSULA'
             print(cost_str)
 
             sys.stdout.flush()
@@ -444,6 +453,8 @@ class Trainer(object):
                     success_action_prob) + '| mean_rel_action_time {:0.6f}'.format(mean_rel_action_time)
                 if self.use_piezo:
                     perf_str += ' | 🫀'
+                elif self.use_insula:
+                    perf_str += ' | 🧠'
                 print(perf_str)
 
             elif self.rule_name == 'interval_comparison':
@@ -474,6 +485,8 @@ class Trainer(object):
                     success_action_prob) + '| mean_choice_error {:0.6f}'.format(mean_choice_error)
                 if self.use_piezo:
                     perf_str += ' | 🫀'
+                elif self.use_insula:
+                    perf_str += ' | 🧠'
                 print(perf_str)
 
 
@@ -674,11 +687,15 @@ class Trainer(object):
                 print('{:20s} = '.format(key) + str(val))
 
         if self.use_piezo:
-            print("\n🫀 SIMPLIFIED PIEZO: ACTIVE")
+            print("\n🫀 PIEZO: ACTIVE")
             print("   No pretraining required")
             print("   Only connectivity parameter trainable")
+        elif self.use_insula:
+            print("\n🧠 INSULA: ACTIVE")
+            print("   Pretrained insula (frozen)")
+            print("   Learned projection aINS → RNN")
         else:
-            print("\n🚫 PIEZO: DISABLED")
+            print("\n🚫 HEARTBEAT INTERFACE: DISABLED")
         # List for performance graph
         self.error_over_trials = []
         self.trial_counts = []
@@ -833,7 +850,9 @@ class Trainer(object):
                 break
 
         if self.use_piezo:
-            print("🫀 Simplified piezo optimization finished!")
+            print("🫀 Piezo optimization finished!")
+        elif self.use_insula:
+            print("🧠 Insula optimization finished!")
         else:
             print("Optimization finished!")
         if self.rule_name == 'time_bisection' and not interrupt:

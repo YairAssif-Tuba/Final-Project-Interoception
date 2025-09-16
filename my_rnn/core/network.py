@@ -20,6 +20,13 @@ try:
 except ImportError:
     PIEZO_AVAILABLE = False
 
+# Import insula interface (standalone, pretrained and frozen)
+try:
+    from standalone_insula_module.insula_module import InsulaModule
+    INSULA_AVAILABLE = True
+except Exception:
+    INSULA_AVAILABLE = False
+
 
 class RNN(nn.Module):
     """RNN with amended piezo interface"""
@@ -54,8 +61,14 @@ class RNN(nn.Module):
         else:
             raise ValueError(f"Unsupported activation function: {act_fcn}")
 
-        # AMENDED PIEZO SETUP
+        # AMENDED PIEZO/INSULA SETUP
         self.use_piezo = hp.get('use_piezo', False)
+        self.use_insula = hp.get('use_insula', False)
+
+        # Mutual exclusivity: prefer insula if both are accidentally enabled
+        if self.use_insula and self.use_piezo:
+            print("⚠️ Both use_insula and use_piezo set. Preferring insula and disabling piezo.")
+            self.use_piezo = False
 
         if self.use_piezo:
             if not PIEZO_AVAILABLE:
@@ -80,6 +93,37 @@ class RNN(nn.Module):
             self.piezo = None
             self.piezo_connectivity = None
             print("🚫 Piezo interface disabled")
+
+        # Insula setup (pretrained + frozen)
+        if self.use_insula:
+            if not INSULA_AVAILABLE:
+                raise ImportError("InsulaModule not available. Ensure standalone_insula_module is on PYTHONPATH.")
+
+            weights_path = hp.get('insula_weights_path', None)
+            device_str = 'cuda' if (is_cuda and torch.cuda.is_available()) else 'cpu'
+            self.insula = InsulaModule(device=device_str, weights_path=weights_path, freeze=True, load_pretrained=True)
+
+            # Projection from aINS -> RNN hidden (no bias)
+            self.insula_to_rnn = nn.Linear(self.insula.n_aINS, hidden_size, bias=False)
+            # Xavier init with optional scale
+            scale = float(hp.get('insula_projection_init_scale', 1.0))
+            nn.init.xavier_uniform_(self.insula_to_rnn.weight)
+            with torch.no_grad():
+                self.insula_to_rnn.weight.mul_(scale)
+            # Move to device
+            self.insula_to_rnn = self.insula_to_rnn.to(self.device)
+
+            # Learnable gate to prevent early swamping
+            gate_init = float(hp.get('insula_gate_init', 0.2))
+            self.insula_gate = nn.Parameter(torch.tensor(gate_init, device=self.device))
+
+            # Pooling strategy
+            self.insula_pooling = hp.get('insula_pooling', 'max')  # 'max' | 'mean_logits'
+
+            print(f"🧠 Insula interface: aINS={self.insula.n_aINS} → hidden={hidden_size}, pooling={self.insula_pooling}")
+        else:
+            self.insula = None
+            self.insula_to_rnn = None
 
         # Task-specific input weights
         rule_name = kwargs.get('rule_name', None)
@@ -153,11 +197,11 @@ class RNN(nn.Module):
         return pressure_slices, min_pressure
 
     def forward(self, inputs, initial_state, hb_sequence=None, mode=None):
-        """Forward pass with amended piezo interface"""
+        """Forward pass with amended piezo/insula interface"""
         T = inputs.shape[0]
 
-        # Original logic when piezo disabled
-        if not self.use_piezo:
+        # Baseline logic when no HB modulation
+        if not self.use_piezo and not self.use_insula:
             state = initial_state
             state_collector = [state]
 
@@ -171,7 +215,119 @@ class RNN(nn.Module):
 
             return state_collector
 
-        # AMENDED PIEZO LOGIC WITH TIME DELAY
+        # INSULA LOGIC (pretrained interface with dense projection)
+        if self.use_insula:
+            # Build per-step insula modulation sequence [T, hidden_size]
+            insula_mod_seq = None
+
+            if hb_sequence is not None:
+                # Extract ECG column (0)
+                ecg = hb_sequence[:, 0]
+                if hasattr(ecg, 'device'):
+                    ecg = ecg.to(self.device)
+
+                # Determine current cardiac sampling rate from slice size and dt
+                slice_size = int(self.hp.get('heartbeat_slice_size', 20))
+                current_fs = slice_size / (self.hp['dt'] / 1000.0)  # Hz
+                target_fs = float(self.hp.get('insula_target_fs', self.insula.fs) or self.insula.fs)
+
+                # Decimate to target_fs using FIR low-pass (Hamming windowed-sinc) + stride
+                factor = max(1, int(round(current_fs / target_fs)))
+                total = (ecg.shape[0] // factor) * factor
+                ecg_use = ecg[:total]
+
+                if factor > 1 and total >= int(self.hp.get('insula_decimate_taps', 31)):
+                    num_taps = int(self.hp.get('insula_decimate_taps', 31))
+                    cutoff_hz = float(self.hp.get('insula_decimate_cutoff_hz', 40.0))
+                    cutoff_hz = min(cutoff_hz, 0.45 * target_fs)  # safety
+                    # Design symmetric linear-phase FIR
+                    dtype = ecg_use.dtype
+                    n = torch.arange(num_taps, device=self.device, dtype=dtype)
+                    m = n - (num_taps - 1) / 2.0
+                    fc = torch.tensor(cutoff_hz / current_fs, device=self.device, dtype=dtype)
+                    hd = 2 * fc * torch.sinc(2 * fc * m)
+                    if str(self.hp.get('insula_decimate_window', 'hamming')).lower() == 'hamming':
+                        w = 0.54 - 0.46 * torch.cos(2 * math.pi * n / (num_taps - 1))
+                    else:
+                        # default to Hamming if unknown
+                        w = 0.54 - 0.46 * torch.cos(2 * math.pi * n / (num_taps - 1))
+                    h = hd * w
+                    h = h / (h.sum() + 1e-8)  # DC gain = 1
+
+                    # Convolution with padding to cancel group delay
+                    pad = (num_taps - 1) // 2
+                    ecg_filt = torch.nn.functional.conv1d(
+                        ecg_use.contiguous().view(1, 1, -1), h.view(1, 1, -1), padding=pad
+                    ).view(-1)
+                    # Stride decimation
+                    ecg_ds = ecg_filt[::factor]
+                else:
+                    # Fallback: raw stride if too short
+                    ecg_ds = ecg_use[::factor]
+
+                # Run insula to get aINS activity [T_insula, n_aINS]
+                with torch.no_grad():
+                    aINS_ta = self.insula.process_ecg(ecg_ds)
+                    # Ensure device and dtype match state
+                    aINS_ta = aINS_ta.to(self.device, dtype=initial_state.dtype)
+
+                # Pool to RNN steps (e.g., 2×10ms per 20ms)
+                steps_per_rnn = max(1, int(round(self.hp['dt'] / self.insula.dt_ms)))
+
+                # Ensure sufficient coverage and bound length
+                max_needed = T * steps_per_rnn
+                if aINS_ta.shape[0] < max_needed and aINS_ta.shape[0] > 0:
+                    pad_len = max_needed - aINS_ta.shape[0]
+                    aINS_ta = torch.cat([aINS_ta, aINS_ta[-1:].repeat(pad_len, 1)], dim=0)
+                elif aINS_ta.shape[0] > max_needed:
+                    aINS_ta = aINS_ta[:max_needed]
+                pooled = []
+                for step in range(T):
+                    s = step * steps_per_rnn
+                    e = min((step + 1) * steps_per_rnn, aINS_ta.shape[0])
+                    if s >= e:
+                        pooled.append(torch.zeros(self.insula.n_aINS, device=self.device))
+                        continue
+                    window = aINS_ta[s:e]
+                    if self.insula_pooling == 'max':
+                        pooled.append(window.max(dim=0).values)
+                    else:  # 'mean_logits' or fallback
+                        pooled.append(window.mean(dim=0))
+
+                aINS_per_step = torch.stack(pooled, dim=0)  # [T, n_aINS]
+                # Optional zero-mean centering
+                if bool(self.hp.get('insula_centering', False)) and aINS_per_step.numel() > 0:
+                    aINS_per_step = aINS_per_step - aINS_per_step.mean(dim=0, keepdim=True)
+
+                insula_mod_seq = self.insula_to_rnn(aINS_per_step) * self.insula_gate  # [T, hidden]
+                
+                # Optional diagnostic logging (only if enabled)
+                if self.hp.get('insula_debug_logging', False):
+                    from .insula_diagnostics import log_insula_metrics
+                    log_insula_metrics(self, self.hp, hb_sequence, insula_mod_seq)
+
+            state = initial_state
+            state_collector = [state]
+
+            for t in range(T):
+                input_per_step = inputs[t]
+
+                h_act = self.act_fcn(state)
+                recurrent_term = torch.matmul(h_act, self.weight_hh)
+                bias_term = self.bias_h
+                input_term = torch.matmul(input_per_step, self.weight_ih)
+                noise_term = torch.randn_like(state) * self.sigma_rec
+                base_state_update = recurrent_term + bias_term + input_term + noise_term
+
+                insula_mod = insula_mod_seq[t] if insula_mod_seq is not None else 0.0
+
+                state_new = base_state_update + insula_mod
+                state = (self._1 - self.alpha) * state + self.alpha * state_new
+                state_collector.append(state)
+
+            return state_collector
+
+        # PIEZO LOGIC WITH TIME DELAY
         else:
             pressure_slices, min_pressure = self.extract_pressure_slices(hb_sequence, T)
 
@@ -241,3 +397,17 @@ class RNN(nn.Module):
         stats['enabled'] = True
         stats['connectivity_param_trainable'] = self.piezo_connectivity.requires_grad
         return stats
+
+    def to(self, device):
+        """Move all parameters to the specified device."""
+        super().to(device)
+        self.device = device
+        # Move scalar tensors to device
+        self.alpha = self.alpha.to(device)
+        
+        # Fix sigma_rec if it's not a tensor
+        if not isinstance(self.sigma_rec, torch.Tensor):
+            self.sigma_rec = torch.tensor(self.sigma_rec, device=device)
+        else:
+            self.sigma_rec = self.sigma_rec.to(device)
+        return self

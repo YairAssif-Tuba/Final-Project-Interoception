@@ -37,7 +37,7 @@ def get_default_input_output_sizes(rule_name):
         raise ValueError(f"Unknown rule: {rule_name}")
 
 
-def get_default_hp(rule_name=None, random_seed=None, use_piezo=False):
+def get_default_hp(rule_name=None, random_seed=None, use_piezo=False, use_insula=False):
     """Get default hyperparameters for model training.
 
     Args:
@@ -97,6 +97,7 @@ def get_default_hp(rule_name=None, random_seed=None, use_piezo=False):
 
         # Simplified piezo interface (disabled by default)
         'use_piezo': use_piezo,
+        'use_insula': use_insula,
     }
 
     # Add simplified piezo-specific parameters if enabled
@@ -177,5 +178,28 @@ def get_default_hp(rule_name=None, random_seed=None, use_piezo=False):
         print(f"🚫 No pretraining required - biologically realistic interface")
     else:
         print("🚫 Piezo interface disabled - using original network")
+
+    # Insula interface configuration (frozen pretrained module)
+    if use_insula:
+        hp.update({
+            'insula_weights_path': 'standalone_insula_module/standalone_insula_train_final/insula_weights_best.pt',
+            'insula_pooling': 'max',  # 'max' | 'mean_logits'
+            'insula_projection_init_scale': 1.0,
+            'insula_gate_init': 0.2,
+            # Decimation/filter settings (configurable)
+            'insula_decimate_enabled': True,
+            'insula_decimate_taps': 31,
+            'insula_decimate_cutoff_hz': 40.0,
+            'insula_decimate_window': 'hamming',
+            # Optional override for target sampling rate (defaults to module config fs)
+            'insula_target_fs': None,
+            # Optional zero-mean centering of aINS drive per sequence
+            'insula_centering': False,
+            # Enable detailed insula diagnostics (set to True for debugging)
+            'insula_debug_logging': False,
+        })
+        print("🧠 Insula interface: ✅ ENABLED (pretrained + frozen)")
+    else:
+        print("🧠 Insula interface: ❌ DISABLED")
 
     return hp

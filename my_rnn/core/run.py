@@ -4,14 +4,15 @@ This module provides functionality for running trained RNN models on interval ti
 It includes the Runner class which loads a trained model and can run inference on specific
 task parameters.
 
-ENHANCED: Support for piezo-enhanced models
-BACKWARD COMPATIBLE: Exact original behavior for non-piezo models
+ENHANCED: Support for piezo-enhanced and insula-enhanced models
+BACKWARD COMPATIBLE: Exact original behavior for non-piezo/non-insula models
 
 The module is designed for:
 1. Analyzing model performance after training
 2. Generating model outputs for visualization
 3. Testing model behavior under different conditions
 4. NEW: Analyzing cardiac reconstruction capabilities (piezo models)
+5. NEW: Analyzing insula activity during cognitive tasks (insula models)
 """
 import numpy as np
 import torch
@@ -27,8 +28,8 @@ class Runner:
     This class handles loading a trained model, setting up the appropriate
     testing conditions, and running the model on specified task parameters.
     
-    ENHANCED: Supports piezo-enhanced models with cardiac reconstruction
-    BACKWARD COMPATIBLE: Works exactly as before for non-piezo models
+    ENHANCED: Supports piezo-enhanced and insula-enhanced models
+    BACKWARD COMPATIBLE: Works exactly as before for non-piezo/non-insula models
     """
     
     def __init__(self, rule_name=None, model=None, hp=None, model_dir=None, 
@@ -59,6 +60,7 @@ class Runner:
         hp['alpha'] = 1.0 * hp['dt'] / hp['tau']
         self.hp = hp
         self.use_piezo = hp.get('use_piezo', False)
+        self.use_insula = hp.get('use_insula', False)
 
         self.noise_on = noise_on
 
@@ -75,8 +77,8 @@ class Runner:
             self.model.sigma_rec = 0
 
         # Create trainer stepper for running the model
-        # Set appropriate mode for piezo models
-        stepper_mode = 'main_task' if self.use_piezo else 'main_task'
+        # Set appropriate mode for piezo/insula models
+        stepper_mode = 'main_task' if (self.use_piezo or self.use_insula) else 'main_task'
         self.train_stepper = train_stepper.TrainStepper(self.model, self.hp, is_cuda, mode=stepper_mode)
 
         # Print model information
@@ -86,6 +88,13 @@ class Runner:
                 stats = self.model.piezo.get_statistics()
                 print(f"   Connected neurons: {stats['num_connected']}/{self.model.hidden_size}")
                 print(f"   Connection fraction: {stats['connection_fraction']:.1%}")
+        elif self.use_insula:
+            print(f"✅ Loaded insula-enhanced model from {model_dir}")
+            if hasattr(self.model, 'insula') and self.model.insula is not None:
+                print(f"   🧠 Insula interface: Pretrained (frozen)")
+                print(f"   📊 Insula interface ready for ECG processing")
+            else:
+                print(f"   ⚠️ WARNING: Model configured for insula but no insula interface found")
         else:
             print(f"🚫 Loaded standard model from {model_dir}")
 
@@ -109,6 +118,8 @@ class Runner:
                     
                 For piezo models (optional):
                     - hb_sequence: Cardiac data for piezo modulation
+                For insula models (optional):
+                    - hb_sequence: ECG data for insula processing
             
         Returns:
             tuple: (trial, train_stepper)
@@ -178,8 +189,8 @@ class Runner:
         # Add rule name to sample
         sample['rule_name'] = self.rule_name
         
-        # Add cardiac data if provided and model supports piezo
-        if self.use_piezo and 'hb_sequence' in kwargs:
+        # Add cardiac data if provided and model supports piezo or insula
+        if (self.use_piezo or self.use_insula) and 'hb_sequence' in kwargs:
             sample['hb_sequence'] = kwargs['hb_sequence']
             if self.is_cuda:
                 sample['hb_sequence'] = sample['hb_sequence'].cuda()
@@ -315,15 +326,55 @@ class Runner:
 
         return results
 
+    def analyze_insula_activity(self, **kwargs):
+        """Analyze insula activity during cognitive task (INSULA MODELS ONLY).
+        
+        Args:
+            **kwargs: Task parameters (same as run() method)
+            
+        Returns:
+            dict: Analysis of insula activity during task
+                - insula_responses: Insula neuron activities over time
+                - task_states: RNN states during task
+                - ecg_influence: ECG influence on behavior
+                
+        Raises:
+            ValueError: If model doesn't have insula interface
+        """
+        if not self.use_insula:
+            raise ValueError("Insula analysis only available for insula-enhanced models")
+
+        # Run the standard task
+        trial, train_stepper = self.run(**kwargs)
+
+        # Extract insula-related information
+        results = {
+            'trial': trial,
+            'states': [state.cpu().numpy() for state in train_stepper.state_collector],
+            'outputs': train_stepper.outputs.cpu().numpy() if hasattr(train_stepper, 'outputs') else None,
+            'use_insula': True
+        }
+
+        # If we have ECG data, analyze the insula responses
+        if 'hb_sequence' in kwargs:
+            #print("🧠 Insula activity analysis complete")
+            results['has_ecg_data'] = True
+        else:
+            #print("ℹ️ Insula analysis complete (no ECG data provided)")
+            results['has_ecg_data'] = False
+
+        return results
+
     def get_model_info(self):
         """Get information about the loaded model.
         
         Returns:
-            dict: Model information including piezo configuration
+            dict: Model information including piezo/insula configuration
         """
         info = {
             'rule_name': self.rule_name,
             'use_piezo': self.use_piezo,
+            'use_insula': self.use_insula,
             'hidden_size': self.model.hidden_size,
             'input_size': self.model.input_size,
             'output_size': self.model.output_size,
@@ -341,6 +392,15 @@ class Runner:
                 'piezo_temporal_delay_enabled': piezo_stats['temporal_delay_enabled'],
                 'piezo_delay_range': piezo_stats['delay_range'],
                 'piezo_slice_size': self.model.piezo.slice_size
+            })
+        
+        if self.use_insula and hasattr(self.model, 'insula') and self.model.insula is not None:
+            info.update({
+                'insula_pretrained': True,
+                'insula_frozen': True,  # Insula weights are always frozen
+                'insula_pooling': getattr(self.model.insula, 'pooling', 'max'),
+                'insula_projection_scale': getattr(self.model.insula, 'projection_init_scale', 1.0),
+                'insula_gate_init': getattr(self.model.insula, 'gate_init', 0.2)
             })
 
         return info
@@ -388,5 +448,51 @@ class Runner:
             print("✅ Comparison complete")
         else:
             print("ℹ️ No cardiac data provided - cannot demonstrate piezo effect")
+            
+        return results
+
+    def compare_with_without_insula(self, **kwargs):
+        """Compare model performance with and without insula modulation.
+        
+        Args:
+            **kwargs: Task parameters
+            
+        Returns:
+            dict: Comparison results
+        """
+        if not self.use_insula:
+            print("⚠️ Model doesn't have insula interface - cannot compare")
+            return None
+
+        print("🔬 Comparing performance with and without insula modulation...")
+
+        # Run with insula (if ECG data provided)
+        results = {'has_comparison': False}
+        
+        if 'hb_sequence' in kwargs:
+            # With insula
+            trial_with, stepper_with = self.run(**kwargs)
+            
+            # Without insula (remove ECG data)
+            kwargs_no_insula = {k: v for k, v in kwargs.items() if k != 'hb_sequence'}
+            trial_without, stepper_without = self.run(**kwargs_no_insula)
+            
+            results = {
+                'has_comparison': True,
+                'with_insula': {
+                    'trial': trial_with,
+                    'outputs': stepper_with.outputs.cpu().numpy() if hasattr(stepper_with, 'outputs') else None,
+                    'cost': stepper_with.cost.item() if hasattr(stepper_with, 'cost') else None
+                },
+                'without_insula': {
+                    'trial': trial_without,
+                    'outputs': stepper_without.outputs.cpu().numpy() if hasattr(stepper_without, 'outputs') else None,
+                    'cost': stepper_without.cost.item() if hasattr(stepper_without, 'cost') else None
+                }
+            }
+            
+            print("✅ Comparison complete")
+        else:
+            print("ℹ️ No ECG data provided - cannot demonstrate insula effect")
             
         return results

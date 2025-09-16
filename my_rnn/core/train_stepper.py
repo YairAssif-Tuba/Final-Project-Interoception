@@ -53,6 +53,8 @@ class TrainStepper:
         self.hp = hp
         self.model = model
         self.use_piezo = hp.get('use_piezo', False)
+        self.use_insula = hp.get('use_insula', False)
+        self.use_hb = self.use_piezo or self.use_insula
         self.mode = mode
 
         # Store alpha as tensor
@@ -87,9 +89,11 @@ class TrainStepper:
         self.update_optimizer()
 
         if self.use_piezo:
-            print(f"✅ Initialized simplified training stepper with piezo")
+            print(f"✅ Initialized training stepper with piezo interface")
+        elif self.use_insula:
+            print(f"🧠 Initialized training stepper with insula interface")
         else:
-            print("🚫 Initialized training stepper without piezo")
+            print("🚫 Initialized training stepper without heartbeat interface")
 
     def update_optimizer(self):
         """Update optimizer with all trainable parameters (simplified)"""
@@ -107,7 +111,7 @@ class TrainStepper:
         else:
             raise ValueError(f"Unsupported optimizer: {self.hp['optimizer']}. Use 'adam' or 'sgd'.")
 
-        if self.use_piezo:
+        if self.use_piezo or self.use_insula:
             print(f"🔧 Optimizer initialized with {len(trainable_params)} trainable parameters")
 
     def forward(self, inputs, initial_state, **kwargs):
@@ -122,7 +126,7 @@ class TrainStepper:
         Returns:
             List of hidden states for all time steps
         """
-        if self.use_piezo:
+        if self.use_hb:
             # Enhanced forward pass with simplified piezo
             hb_sequence = kwargs.get('hb_sequence', None)
             return self.rnn_net(inputs, initial_state, hb_sequence=hb_sequence)
@@ -170,7 +174,7 @@ class TrainStepper:
 
         # === FORWARD PASS AND STATE COLLECTION ===
         # Forward pass through the model to collect all states
-        if self.use_piezo:
+        if self.use_hb:
             hb_sequence = kwargs.get('hb_sequence', None)
             self.state_collector = self.forward(inputs, initial_state, hb_sequence=hb_sequence)
         else:

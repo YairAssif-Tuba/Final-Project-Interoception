@@ -1,0 +1,17 @@
+{
+  "fs": 100,
+  "sigma_ms": 30.0,
+  "tolerance_ms": 50.0,
+  "zthr": 2.5,
+  "refractory_ms": 300.0,
+  "peak_thr": 0.7,
+  "best_peak_thr": 0.7,
+  "peak_min_dist_ms": 300.0,
+  "dt_ms": 10.0,
+  "tau_ms": 70.0,
+  "seed": 42,
+  "focal_alpha": 0.23903095579116773,
+  "focal_gamma": 2.8977710745066663,
+  "sparsity_weight": 0.0010249322216924156,
+  "beat_head_bias": -3.0
+}

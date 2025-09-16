@@ -100,17 +100,25 @@ class EnhancedPiezoTimeBisectionAnalyzer:
             #self.dataset_loader = None
             #self.using_dataset = False
 
-    def create_enhanced_hp(self, use_piezo=False):
-        """MODIFIED: Use time_bisection instead of interval_comparison"""
-        hp = default.get_default_hp('time_bisection', use_piezo=use_piezo)
+    def create_enhanced_hp(self, use_piezo=False, use_insula=False):
+        """MODIFIED: Use time_bisection instead of interval_comparison, support insula"""
+        hp = default.get_default_hp('time_bisection', use_piezo=use_piezo, use_insula=use_insula)
 
-        # Manually add piezo settings if needed
+        # Piezo-specific enhancements
         if use_piezo:
             hp['use_piezo'] = True
             hp['heartbeat_slice_size'] = 20
             hp['piezo_connection_fraction'] = 0.15
             hp['use_temporal_delay'] = self.use_time_delay
             hp['temporal_delay_steps'] = 3
+
+        # Insula-specific enhancements
+        if use_insula:
+            # Explicitly enable insula interface
+            hp['use_insula'] = True
+            # The insula configuration is already set up in default.py
+            # Gate initialization is now 0.2 by default for optimal gradient flow
+
         # Bisection-specific enhancements
         hp['bisection_parameters'] = self.bisection_parameters
 
@@ -190,6 +198,103 @@ class EnhancedPiezoTimeBisectionAnalyzer:
         }
 
         return correlation_analysis
+
+    # NEW ENHANCEMENT: Insula-specific tracking methods
+    def extract_insula_weight_norms(self, model, phase='initial'):
+        """Extract insula weight norms to verify frozen weights don't change."""
+        if not hasattr(model, 'insula') or model.insula is None:
+            return None
+        
+        # Check if insula weights exist and extract norms
+        weight_norms = {}
+        if hasattr(model.insula, 'weight_hh'):
+            weight_norms['insula_weight_hh_norm'] = torch.norm(model.insula.weight_hh).item()
+        if hasattr(model.insula, 'weight_ih'):
+            weight_norms['insula_weight_ih_norm'] = torch.norm(model.insula.weight_ih).item()
+        
+        weight_norms['phase'] = phase
+        return weight_norms
+
+    def extract_insula_cortex_connections(self, model, phase='initial'):
+        """Extract insula-to-cortex connection statistics."""
+        if not hasattr(model, 'insula_to_rnn') or model.insula_to_rnn is None:
+            return None
+        
+        connection_stats = {}
+        
+        # Overall connection weight matrix norm
+        connection_weight = model.insula_to_rnn.weight.detach().cpu().numpy()  # [hidden_size, n_aINS]
+        connection_stats['connection_matrix_norm'] = np.linalg.norm(connection_weight)
+        connection_stats['connection_matrix_shape'] = connection_weight.shape
+        
+        # Per-aINS unit connection strengths (how strongly each aINS unit connects to cortex)
+        per_aINS_norms = np.linalg.norm(connection_weight, axis=0)  # [n_aINS]
+        connection_stats['per_aINS_connection_norms'] = per_aINS_norms
+        connection_stats['mean_aINS_connection_strength'] = np.mean(per_aINS_norms)
+        connection_stats['std_aINS_connection_strength'] = np.std(per_aINS_norms)
+        
+        # Per-cortex unit connection strengths (how many aINS inputs each cortex unit receives)
+        per_cortex_norms = np.linalg.norm(connection_weight, axis=1)  # [hidden_size]
+        connection_stats['mean_cortex_connection_strength'] = np.mean(per_cortex_norms)
+        connection_stats['std_cortex_connection_strength'] = np.std(per_cortex_norms)
+        
+        # Gate value
+        if hasattr(model, 'insula_gate') and model.insula_gate is not None:
+            connection_stats['gate_value'] = model.insula_gate.item()
+        
+        connection_stats['phase'] = phase
+        return connection_stats
+
+    def analyze_insula_activity_during_trial(self, model, trial_input, trial_length):
+        """Analyze aINS activity during a sample trial."""
+        if not hasattr(model, 'insula') or model.insula is None:
+            return None
+        
+        model.eval()
+        with torch.no_grad():
+            # Run a forward pass to get aINS activity
+            # Note: This is simplified - in practice we'd need the full ECG processing pipeline
+            try:
+                # Simulate some ECG-like input for demonstration
+                batch_size = 1
+                device = model.device
+                
+                # Create dummy heartbeat sequence for analysis
+                from cardiac_data import create_sparse_hb_sequence, generate_simple_cardiac_pressure
+                
+                # Generate cardiac pressure for the trial duration
+                pressure_data = generate_simple_cardiac_pressure(trial_length, sampling_rate=60)
+                hb_sequence, _ = create_sparse_hb_sequence(pressure_data, sampling_rate=60)
+                hb_sequence = torch.tensor(hb_sequence, dtype=torch.float32).unsqueeze(0).to(device)  # [1, T]
+                
+                # Process through insula to get aINS activity
+                if hasattr(model.insula, 'process_ecg_batch'):
+                    # Convert hb_sequence to proper ECG format for insula processing
+                    hb_np = hb_sequence.cpu().numpy()  # [1, T]
+                    if hb_np.ndim == 2 and hb_np.shape[0] == 1:
+                        # Reshape to [B, T] format expected by process_ecg_batch
+                        aINS_activity = model.insula.process_ecg_batch(hb_np)  # [T, B, n_aINS]
+                        aINS_activity = aINS_activity.squeeze(1)  # [T, n_aINS]
+                    else:
+                        print(f"      Warning: Unexpected hb_sequence shape: {hb_np.shape}")
+                        return None
+                    
+                    activity_stats = {
+                        'aINS_mean_activity': torch.mean(aINS_activity, dim=0).cpu().numpy(),  # [n_aINS]
+                        'aINS_max_activity': torch.max(aINS_activity, dim=0)[0].cpu().numpy(),  # [n_aINS]
+                        'aINS_min_activity': torch.min(aINS_activity, dim=0)[0].cpu().numpy(),  # [n_aINS]
+                        'aINS_std_activity': torch.std(aINS_activity, dim=0).cpu().numpy(),  # [n_aINS]
+                        'aINS_total_activity': torch.sum(aINS_activity).item(),
+                        'trial_length': trial_length,
+                        'activity_shape': aINS_activity.shape
+                    }
+                    return activity_stats
+                    
+            except Exception as e:
+                print(f"   Warning: Could not analyze aINS activity: {e}")
+                return None
+        
+        return None
 
     def train_networks(self, max_samples=5e5):
         """IDENTICAL to original - train both piezo and non-piezo networks with enhanced tracking."""
@@ -306,7 +411,74 @@ class EnhancedPiezoTimeBisectionAnalyzer:
 
         return results
 
-    def _train_with_enhanced_tracking(self, model_dir, use_piezo, max_samples, display_step, run_idx):
+    def train_insula_networks(self, max_samples=5e5):
+        """Train insula networks with enhanced tracking (similar to train_networks but for insula only)."""
+        print(f"\nEnhanced Insula Network Training (Time Bisection)")
+        print(f"   Max samples per run: {max_samples:,.0f}")
+        print(f"   Runs per network type: {self.num_runs}")
+        print(f"   Total training runs: {self.num_runs}")
+        print("=" * 60)
+
+        results = {
+            'insula': {
+                'runs': [],
+                'successful_runs': 0,
+                'failed_runs': 0,
+                'total_training_time': 0
+            }
+        }
+
+        # Train insula networks
+        print(f"\nTraining {self.num_runs} Insula Networks")
+        print("-" * 40)
+
+        for run_idx in range(self.num_runs):
+            print(f"\nInsula Run {run_idx + 1}/{self.num_runs}")
+
+            model_dir = os.path.join(self.output_dir, f"insula_run_{run_idx + 1}")
+            start_time = time.time()
+
+            stat, trainer = self._train_with_enhanced_tracking(
+                model_dir=model_dir,
+                use_piezo=False,
+                use_insula=True,
+                max_samples=max_samples,
+                display_step=1000,
+                run_idx=run_idx + 1
+            )
+
+            training_time = time.time() - start_time
+            results['insula']['total_training_time'] += training_time
+
+            run_result = {
+                'run_idx': run_idx + 1,
+                'model_dir': model_dir,
+                'trainer': trainer,
+                'status': stat,
+                'training_time': training_time,
+                'hp': trainer.hp if trainer else None
+            }
+
+            results['insula']['runs'].append(run_result)
+
+            if stat == 'OK':
+                results['insula']['successful_runs'] += 1
+                print(f"   Run {run_idx + 1} successful ({training_time:.1f}s)")
+            else:
+                results['insula']['failed_runs'] += 1
+                print(f"   Run {run_idx + 1} failed ({training_time:.1f}s)")
+
+        # Save training summary
+        self._save_insula_runs_summary(results)
+
+        # Print final summary
+        print(f"\nInsula Training Runs Complete!")
+        print(f"   Insula: {results['insula']['successful_runs']}/{self.num_runs} successful")
+        print(f"   Total time: {results['insula']['total_training_time']:.1f}s")
+
+        return results
+
+    def _train_with_enhanced_tracking(self, model_dir, use_piezo, max_samples, display_step, run_idx, use_insula=False):
         """MODIFIED: Use time_bisection task instead of interval_comparison."""
         import shutil
 
@@ -320,18 +492,22 @@ class EnhancedPiezoTimeBisectionAnalyzer:
                 print(f"      Attempt {attempt}...")
 
                 # Create fresh hyperparameters for each attempt (IDENTICAL to original)
-                hp = self.create_enhanced_hp(use_piezo=use_piezo)
+                hp = self.create_enhanced_hp(use_piezo=use_piezo, use_insula=use_insula)
 
                 # Create trainer (MODIFIED: Use time_bisection)
                 trainer = train.Trainer(
                     model_dir=model_dir,
                     rule_name='time_bisection',  # CHANGED from interval_comparison
                     hp=hp,
-                    is_cuda=False
+                    is_cuda=True
                 )
 
-                # NEW ENHANCEMENT 1: Record initial connectivity statistics (piezo only)
+                # NEW ENHANCEMENT 1: Record initial connectivity/insula statistics
                 initial_connectivity = None
+                initial_insula_weights = None
+                initial_insula_connections = None
+                
+                # CRITICAL: Save initial state BEFORE training
                 if use_piezo:
                     if hasattr(trainer.model, 'piezo_connectivity') and trainer.model.piezo_connectivity is not None:
                         initial_connectivity = self.extract_connectivity_statistics(trainer.model, 'initial')
@@ -340,6 +516,33 @@ class EnhancedPiezoTimeBisectionAnalyzer:
                                   f"mean={initial_connectivity['activated_mean']:.3f}")
                     else:
                         print(f"      No piezo_connectivity found in model")
+                elif use_insula:
+                    print(f"      Insula interface active (pretrained + frozen)")
+                    if hasattr(trainer.model, 'insula') and trainer.model.insula is not None:
+                        print(f"      aINS units: {trainer.model.insula.n_aINS}")
+                        print(f"      Gate value: {trainer.model.insula_gate.item():.4f}")
+                        
+                        # CRITICAL: Deep copy the initial state to preserve it
+                        import copy
+                        initial_gate_value = trainer.model.insula_gate.item()
+                        initial_projection_weights = trainer.model.insula_to_rnn.weight.detach().cpu().numpy().copy()
+                        
+                        # Track initial insula weight norms (should stay constant)
+                        initial_insula_weights = self.extract_insula_weight_norms(trainer.model, 'initial')
+                        if initial_insula_weights:
+                            print(f"      Initial insula frozen weight norms: {list(initial_insula_weights.keys())}")
+                        
+                        # Track initial insula-cortex connections (should change during training)
+                        initial_insula_connections = self.extract_insula_cortex_connections(trainer.model, 'initial')
+                        if initial_insula_connections:
+                            print(f"      Initial insula-cortex connection norm: {initial_insula_connections['connection_matrix_norm']:.3f}")
+                            print(f"      Initial mean aINS connection strength: {initial_insula_connections['mean_aINS_connection_strength']:.3f}")
+                            
+                            # SAVE THE TRUE INITIAL STATE
+                            initial_insula_connections['true_initial_gate'] = initial_gate_value
+                            initial_insula_connections['true_initial_projection_norm'] = float(np.linalg.norm(initial_projection_weights))
+                    else:
+                        print(f"      No insula found in model")
 
                 # Attempt training (IDENTICAL to original)
                 stat = trainer.train(max_samples=max_samples, display_step=display_step)
@@ -373,6 +576,67 @@ class EnhancedPiezoTimeBisectionAnalyzer:
                             with open(connectivity_file, 'wb') as f:
                                 pickle.dump(connectivity_data, f)
                             print(f"      Connectivity analysis saved")
+                    elif use_insula:
+                        # For insula, track final weight norms and connections
+                        final_insula_weights = None
+                        final_insula_connections = None
+                        insula_activity_stats = None
+                        
+                        if hasattr(trainer.model, 'insula_gate'):
+                            final_gate_value = trainer.model.insula_gate.item()
+                            print(f"      Final gate value: {final_gate_value:.4f}")
+                        
+                        # Track final insula weight norms (should be unchanged)
+                        final_insula_weights = self.extract_insula_weight_norms(trainer.model, 'final')
+                        if final_insula_weights and initial_insula_weights:
+                            weight_changes = {}
+                            for key in initial_insula_weights:
+                                if key != 'phase' and key in final_insula_weights:
+                                    initial_val = initial_insula_weights[key]
+                                    final_val = final_insula_weights[key]
+                                    weight_changes[f'{key}_change'] = abs(final_val - initial_val)
+                            print(f"      Insula weight changes (should be ~0): {weight_changes}")
+                        
+                        # Track final insula-cortex connections (should have changed)
+                        final_insula_connections = self.extract_insula_cortex_connections(trainer.model, 'final')
+                        if final_insula_connections and initial_insula_connections:
+                            # Use the preserved initial state for accurate comparison
+                            true_initial_gate = initial_insula_connections.get('true_initial_gate', initial_insula_connections['gate_value'])
+                            true_initial_norm = initial_insula_connections.get('true_initial_projection_norm', initial_insula_connections['connection_matrix_norm'])
+                            
+                            connection_changes = {
+                                'connection_norm_change': abs(final_insula_connections['connection_matrix_norm'] - true_initial_norm),
+                                'mean_aINS_strength_change': abs(final_insula_connections['mean_aINS_connection_strength'] - 
+                                                                initial_insula_connections['mean_aINS_connection_strength']),
+                                'gate_value_change': abs(final_insula_connections['gate_value'] - true_initial_gate)
+                            }
+                            print(f"      Insula-cortex connection changes: {connection_changes}")
+                            print(f"      TRUE initial norm: {true_initial_norm:.6f}")
+                            print(f"      TRUE final norm: {final_insula_connections['connection_matrix_norm']:.6f}")
+                            print(f"      ACTUAL norm change: {connection_changes['connection_norm_change']:.6f}")
+                        
+                        # Analyze aINS activity during a sample trial
+                        trial_length = int(3.0 * 60)  # 3 seconds at 60Hz
+                        insula_activity_stats = self.analyze_insula_activity_during_trial(trainer.model, None, trial_length)
+                        if insula_activity_stats:
+                            print(f"      aINS activity analysis: mean_total={insula_activity_stats['aINS_total_activity']:.3f}")
+                            
+                        # Save comprehensive insula analysis
+                        insula_data = {
+                            'initial_weights': initial_insula_weights,
+                            'final_weights': final_insula_weights,
+                            'initial_connections': initial_insula_connections,
+                            'final_connections': final_insula_connections,
+                            'activity_stats': insula_activity_stats,
+                            'run_idx': run_idx,
+                            'aINS_units': trainer.model.insula.n_aINS if trainer.model.insula else None,
+                            'pooling_mode': trainer.hp.get('insula_pooling', 'max')
+                        }
+                        
+                        insula_file = os.path.join(model_dir, 'insula_analysis.pkl')
+                        with open(insula_file, 'wb') as f:
+                            pickle.dump(insula_data, f)
+                        print(f"      Insula analysis saved")
 
                     print(f"      Training successful on attempt {attempt}")
                     return stat, trainer
@@ -612,7 +876,7 @@ class EnhancedPiezoTimeBisectionAnalyzer:
 
                 try:
                     # Create and load model (MODIFIED: Use time_bisection)
-                    model = network.RNN(hp, is_cuda=False, rule_name='time_bisection')
+                    model = network.RNN(hp, is_cuda=True, rule_name='time_bisection')
 
                     # Try to load the model
                     if not model.load(model_dir):
@@ -1352,6 +1616,598 @@ class EnhancedPiezoTimeBisectionAnalyzer:
 
         print(f"\nTotal individual plots created: {plots_created}")
 
+    def plot_insula_weight_verification(self, training_results):
+        """Plot insula weight norms to verify they remain frozen during training."""
+        print(f"\nGenerating Insula Weight Verification Plot")
+        
+        insula_runs = [run for run in training_results['insula']['runs'] if run['status'] == 'OK']
+        if not insula_runs:
+            print("   No successful insula runs to analyze")
+            return
+        
+        # Collect weight norm data
+        initial_norms = []
+        final_norms = []
+        weight_labels = []
+        
+        for run in insula_runs:
+            model_dir = run['model_dir']
+            insula_file = os.path.join(model_dir, 'insula_analysis.pkl')
+            
+            if os.path.exists(insula_file):
+                with open(insula_file, 'rb') as f:
+                    insula_data = pickle.load(f)
+                
+                initial_weights = insula_data.get('initial_weights', {})
+                final_weights = insula_data.get('final_weights', {})
+                
+                if initial_weights and final_weights:
+                    for weight_key in initial_weights:
+                        if weight_key != 'phase' and weight_key in final_weights:
+                            initial_norms.append(initial_weights[weight_key])
+                            final_norms.append(final_weights[weight_key])
+                            weight_labels.append(f"Run {run['run_idx']} {weight_key}")
+        
+        if not initial_norms:
+            print("   No weight norm data found")
+            return
+        
+        # Create plot
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+        
+        # Plot 1: Initial vs Final weight norms
+        ax1.scatter(initial_norms, final_norms, alpha=0.7, s=60)
+        
+        # Add diagonal line (perfect correlation)
+        min_norm = min(min(initial_norms), min(final_norms))
+        max_norm = max(max(initial_norms), max(final_norms))
+        ax1.plot([min_norm, max_norm], [min_norm, max_norm], 'r--', alpha=0.8, label='Perfect match')
+        
+        ax1.set_xlabel('Initial Weight Norms')
+        ax1.set_ylabel('Final Weight Norms')
+        ax1.set_title('Insula Weight Norms: Initial vs Final\n(Should be on diagonal for frozen weights)')
+        ax1.legend()
+        ax1.grid(alpha=0.3)
+        
+        # Plot 2: Weight norm differences
+        differences = [abs(final - initial) for initial, final in zip(initial_norms, final_norms)]
+        ax2.bar(range(len(differences)), differences, alpha=0.7)
+        ax2.set_xlabel('Weight Parameter Index')
+        ax2.set_ylabel('|Final - Initial| Weight Norm')
+        ax2.set_title('Insula Weight Norm Changes\n(Should be ~0 for frozen weights)')
+        ax2.grid(alpha=0.3)
+        
+        # Add statistics
+        mean_diff = np.mean(differences)
+        max_diff = np.max(differences)
+        ax2.axhline(y=mean_diff, color='orange', linestyle='--', alpha=0.8, label=f'Mean: {mean_diff:.2e}')
+        ax2.legend()
+        
+        plt.tight_layout()
+        
+        # Save plot
+        delay_suffix = "_with_delay" if self.use_time_delay else "_no_delay"
+        plt.savefig(os.path.join(self.output_dir, f'insula_weight_verification{delay_suffix}.png'),
+                    dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"   Weight verification plot saved")
+        print(f"   Mean weight change: {mean_diff:.2e} (should be ~0)")
+        print(f"   Max weight change: {max_diff:.2e}")
+
+    def plot_insula_cortex_connections(self, training_results):
+        """Plot insula-to-cortex connection evolution during training."""
+        print(f"\nGenerating Insula-Cortex Connection Analysis Plot")
+        
+        insula_runs = [run for run in training_results['insula']['runs'] if run['status'] == 'OK']
+        if not insula_runs:
+            print("   No successful insula runs to analyze")
+            return
+        
+        # Collect connection data
+        connection_data = []
+        
+        for run in insula_runs:
+            model_dir = run['model_dir']
+            insula_file = os.path.join(model_dir, 'insula_analysis.pkl')
+            
+            if os.path.exists(insula_file):
+                with open(insula_file, 'rb') as f:
+                    insula_data = pickle.load(f)
+                
+                initial_conn = insula_data.get('initial_connections', {})
+                final_conn = insula_data.get('final_connections', {})
+                
+                if initial_conn and final_conn:
+                    connection_data.append({
+                        'run_idx': run['run_idx'],
+                        'initial_norm': initial_conn['connection_matrix_norm'],
+                        'final_norm': final_conn['connection_matrix_norm'],
+                        'initial_gate': initial_conn['gate_value'],
+                        'final_gate': final_conn['gate_value'],
+                        'initial_mean_aINS': initial_conn['mean_aINS_connection_strength'],
+                        'final_mean_aINS': final_conn['mean_aINS_connection_strength'],
+                        'per_aINS_initial': initial_conn['per_aINS_connection_norms'],
+                        'per_aINS_final': final_conn['per_aINS_connection_norms']
+                    })
+        
+        if not connection_data:
+            print("   No connection data found")
+            return
+        
+        # Create comprehensive plot
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        
+        # Plot 1: Connection matrix norm evolution
+        ax = axes[0, 0]
+        run_indices = [d['run_idx'] for d in connection_data]
+        initial_norms = [d['initial_norm'] for d in connection_data]
+        final_norms = [d['final_norm'] for d in connection_data]
+        
+        x = np.arange(len(run_indices))
+        width = 0.35
+        ax.bar(x - width/2, initial_norms, width, label='Initial', alpha=0.7)
+        ax.bar(x + width/2, final_norms, width, label='Final', alpha=0.7)
+        ax.set_xlabel('Run Index')
+        ax.set_ylabel('Connection Matrix Norm')
+        ax.set_title('Insula-Cortex Connection Strength Evolution')
+        ax.set_xticks(x)
+        ax.set_xticklabels([f'Run {i}' for i in run_indices])
+        ax.legend()
+        ax.grid(alpha=0.3)
+        
+        # Plot 2: Gate value evolution
+        ax = axes[0, 1]
+        initial_gates = [d['initial_gate'] for d in connection_data]
+        final_gates = [d['final_gate'] for d in connection_data]
+        
+        ax.bar(x - width/2, initial_gates, width, label='Initial', alpha=0.7)
+        ax.bar(x + width/2, final_gates, width, label='Final', alpha=0.7)
+        ax.set_xlabel('Run Index')
+        ax.set_ylabel('Insula Gate Value')
+        ax.set_title('Insula Gate Evolution During Training')
+        ax.set_xticks(x)
+        ax.set_xticklabels([f'Run {i}' for i in run_indices])
+        ax.legend()
+        ax.grid(alpha=0.3)
+        
+        # Plot 3: Per-aINS connection strength changes
+        ax = axes[1, 0]
+        if connection_data:
+            n_aINS = len(connection_data[0]['per_aINS_initial'])
+            aINS_indices = np.arange(n_aINS)
+            
+            # Average changes across runs
+            avg_initial = np.mean([d['per_aINS_initial'] for d in connection_data], axis=0)
+            avg_final = np.mean([d['per_aINS_final'] for d in connection_data], axis=0)
+            changes = np.abs(avg_final - avg_initial)
+            
+            ax.bar(aINS_indices, changes, alpha=0.7)
+            ax.set_xlabel('aINS Unit Index')
+            ax.set_ylabel('Mean |Final - Initial| Connection Strength')
+            ax.set_title('Per-aINS Unit Connection Changes (Averaged Across Runs)')
+            ax.grid(alpha=0.3)
+        
+        # Plot 4: Summary statistics
+        ax = axes[1, 1]
+        
+        # Calculate summary stats
+        norm_changes = [abs(d['final_norm'] - d['initial_norm']) for d in connection_data]
+        gate_changes = [abs(d['final_gate'] - d['initial_gate']) for d in connection_data]
+        aINS_changes = [abs(d['final_mean_aINS'] - d['initial_mean_aINS']) for d in connection_data]
+        
+        categories = ['Connection\nMatrix Norm', 'Gate Value', 'Mean aINS\nStrength']
+        means = [np.mean(norm_changes), np.mean(gate_changes), np.mean(aINS_changes)]
+        stds = [np.std(norm_changes), np.std(gate_changes), np.std(aINS_changes)]
+        
+        ax.bar(categories, means, yerr=stds, capsize=5, alpha=0.7)
+        ax.set_ylabel('Mean |Change| During Training')
+        ax.set_title('Summary of Insula-Cortex Connection Changes')
+        ax.grid(alpha=0.3)
+        
+        plt.tight_layout()
+        
+        # Save plot
+        delay_suffix = "_with_delay" if self.use_time_delay else "_no_delay"
+        plt.savefig(os.path.join(self.output_dir, f'insula_cortex_connections{delay_suffix}.png'),
+                    dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"   Insula-cortex connection plot saved")
+        print(f"   Mean connection norm change: {np.mean(norm_changes):.3f}")
+        print(f"   Mean gate value change: {np.mean(gate_changes):.3f}")
+
+    def plot_insula_activity_analysis(self, training_results):
+        """Plot aINS activity patterns during sample trials."""
+        print(f"\nGenerating Insula Activity Analysis Plot")
+        
+        insula_runs = [run for run in training_results['insula']['runs'] if run['status'] == 'OK']
+        if not insula_runs:
+            print("   No successful insula runs to analyze")
+            return
+        
+        # Collect activity data
+        activity_data = []
+        
+        for run in insula_runs:
+            model_dir = run['model_dir']
+            insula_file = os.path.join(model_dir, 'insula_analysis.pkl')
+            
+            if os.path.exists(insula_file):
+                with open(insula_file, 'rb') as f:
+                    insula_data = pickle.load(f)
+                
+                activity_stats = insula_data.get('activity_stats', {})
+                if activity_stats and 'aINS_mean_activity' in activity_stats:
+                    activity_data.append({
+                        'run_idx': run['run_idx'],
+                        'mean_activity': activity_stats['aINS_mean_activity'],
+                        'max_activity': activity_stats['aINS_max_activity'],
+                        'std_activity': activity_stats['aINS_std_activity'],
+                        'total_activity': activity_stats['aINS_total_activity']
+                    })
+        
+        if not activity_data:
+            print("   No activity data found")
+            return
+        
+        # Create plot
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        
+        # Plot 1: Mean activity per aINS unit across runs
+        ax = axes[0, 0]
+        n_aINS = len(activity_data[0]['mean_activity'])
+        aINS_indices = np.arange(n_aINS)
+        
+        # Average across runs
+        avg_mean_activity = np.mean([d['mean_activity'] for d in activity_data], axis=0)
+        std_mean_activity = np.std([d['mean_activity'] for d in activity_data], axis=0)
+        
+        ax.bar(aINS_indices, avg_mean_activity, yerr=std_mean_activity, capsize=3, alpha=0.7)
+        ax.set_xlabel('aINS Unit Index')
+        ax.set_ylabel('Mean Activity (Averaged Across Runs)')
+        ax.set_title('Mean aINS Activity per Unit')
+        ax.grid(alpha=0.3)
+        
+        # Plot 2: Max activity per aINS unit across runs
+        ax = axes[0, 1]
+        avg_max_activity = np.mean([d['max_activity'] for d in activity_data], axis=0)
+        std_max_activity = np.std([d['max_activity'] for d in activity_data], axis=0)
+        
+        ax.bar(aINS_indices, avg_max_activity, yerr=std_max_activity, capsize=3, alpha=0.7)
+        ax.set_xlabel('aINS Unit Index')
+        ax.set_ylabel('Max Activity (Averaged Across Runs)')
+        ax.set_title('Max aINS Activity per Unit')
+        ax.grid(alpha=0.3)
+        
+        # Plot 3: Activity variability (std) per unit
+        ax = axes[1, 0]
+        avg_std_activity = np.mean([d['std_activity'] for d in activity_data], axis=0)
+        std_std_activity = np.std([d['std_activity'] for d in activity_data], axis=0)
+        
+        ax.bar(aINS_indices, avg_std_activity, yerr=std_std_activity, capsize=3, alpha=0.7)
+        ax.set_xlabel('aINS Unit Index')
+        ax.set_ylabel('Activity Std Dev (Averaged Across Runs)')
+        ax.set_title('aINS Activity Variability per Unit')
+        ax.grid(alpha=0.3)
+        
+        # Plot 4: Total activity summary
+        ax = axes[1, 1]
+        run_labels = [f"Run {data['run_idx']}" for data in activity_data]
+        total_activities = [data['total_activity'] for data in activity_data]
+        
+        ax.bar(run_labels, total_activities, alpha=0.7)
+        ax.set_xlabel('Run')
+        ax.set_ylabel('Total aINS Activity')
+        ax.set_title('Total aINS Activity Across Runs')
+        ax.grid(alpha=0.3)
+        
+        # Add mean line
+        mean_total = np.mean(total_activities)
+        ax.axhline(y=mean_total, color='red', linestyle='--', alpha=0.8, 
+                  label=f'Mean: {mean_total:.2f}')
+        ax.legend()
+        
+        plt.tight_layout()
+        
+        # Save plot
+        delay_suffix = "_with_delay" if self.use_time_delay else "_no_delay"
+        plt.savefig(os.path.join(self.output_dir, f'insula_activity_analysis{delay_suffix}.png'),
+                    dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"   Insula activity analysis plot saved")
+        print(f"   Mean total activity across runs: {np.mean(total_activities):.2f}")
+
+    def extract_checkpoint_weight_evolution(self, run_dir):
+        """Extract weight norms from all checkpoints in a training run."""
+        import glob
+        import network
+        
+        # Find all checkpoint directories
+        checkpoint_dirs = []
+        for item in os.listdir(run_dir):
+            item_path = os.path.join(run_dir, item)
+            if os.path.isdir(item_path) and item.isdigit():
+                model_file = os.path.join(item_path, 'model.pth')
+                if os.path.exists(model_file):
+                    checkpoint_dirs.append((int(item), model_file))
+        
+        print(f"     Found {len(checkpoint_dirs)} checkpoint directories in {run_dir}")
+        if not checkpoint_dirs:
+            print(f"     No valid checkpoint directories found")
+            return None
+        
+        # Sort by checkpoint number
+        checkpoint_dirs.sort(key=lambda x: x[0])
+        
+        # Load hyperparameters
+        hp_file = os.path.join(run_dir, 'hp.json')
+        if not os.path.exists(hp_file):
+            return None
+            
+        with open(hp_file, 'r') as f:
+            hp = json.load(f)
+        
+        # Extract weights from each checkpoint
+        evolution_data = {
+            'checkpoints': [],
+            'gate_values': [],
+            'projection_norms': [],
+            'projection_matrices': []
+        }
+        
+        for step, model_path in checkpoint_dirs:
+            try:
+                # Load model (MODIFIED for time_bisection task)
+                model = network.RNN(hp, is_cuda=False, rule_name='time_bisection')
+                state_dict = torch.load(model_path, map_location='cpu')
+                model.load_state_dict(state_dict)
+                
+                # Check if model has insula components
+                if not hasattr(model, 'insula_gate') or model.insula_gate is None:
+                    print(f"     Warning: Checkpoint {step} has no insula_gate")
+                    continue
+                if not hasattr(model, 'insula_to_rnn') or model.insula_to_rnn is None:
+                    print(f"     Warning: Checkpoint {step} has no insula_to_rnn")
+                    continue
+                
+                # Extract gate value
+                gate_value = model.insula_gate.item()
+                
+                # Extract projection weights
+                projection_weights = model.insula_to_rnn.weight.detach().cpu().numpy()
+                projection_norm = float(np.linalg.norm(projection_weights))
+                
+                # Store data
+                evolution_data['checkpoints'].append(step)
+                evolution_data['gate_values'].append(gate_value)
+                evolution_data['projection_norms'].append(projection_norm)
+                evolution_data['projection_matrices'].append(projection_weights.copy())
+                
+                print(f"     Checkpoint {step}: gate={gate_value:.4f}, proj_norm={projection_norm:.4f}")
+                
+            except Exception as e:
+                print(f"     Warning: Could not load checkpoint {step}: {e}")
+                continue
+        
+        return evolution_data if evolution_data['checkpoints'] else None
+
+    def plot_dynamic_weight_evolution(self, training_results):
+        """Generate dynamic weight evolution plots."""
+        print(f"\nGenerating Dynamic Weight Evolution Plots")
+        
+        if not training_results.get('insula', {}).get('runs'):
+            print("   No insula training data found")
+            return
+        
+        runs_data = training_results['insula']['runs']
+        successful_runs = [run for run in runs_data if run.get('status') == 'OK']
+        
+        if not successful_runs:
+            print("   No successful insula runs found")
+            return
+        
+        # Extract evolution data for each run
+        all_evolution_data = []
+        for i, run in enumerate(successful_runs):
+            run_dir = run.get('model_dir')
+            print(f"   Processing run {i+1}: {run_dir}")
+            if run_dir and os.path.exists(run_dir):
+                evolution_data = self.extract_checkpoint_weight_evolution(run_dir)
+                if evolution_data:
+                    evolution_data['run_id'] = i + 1
+                    all_evolution_data.append(evolution_data)
+                    print(f"     Found {len(evolution_data['checkpoints'])} checkpoints: {evolution_data['checkpoints']}")
+                else:
+                    print(f"     No evolution data extracted from {run_dir}")
+            else:
+                print(f"     Run directory not found: {run_dir}")
+        
+        if not all_evolution_data:
+            print("   No checkpoint evolution data found")
+            print("   This usually happens when:")
+            print("     - Training stopped too early (< 3 checkpoints)")
+            print("     - Checkpoint files are missing or corrupted") 
+            print("     - Insula interface not properly initialized")
+            return
+        
+        # Create the three plots
+        self._plot_gate_evolution(all_evolution_data)
+        self._plot_projection_norm_evolution(all_evolution_data)
+        self._plot_weight_topology_snapshots(all_evolution_data)
+        
+        print(f"   Dynamic weight evolution plots saved")
+
+    def _plot_gate_evolution(self, all_evolution_data):
+        """Plot 1: Insula gate value evolution over checkpoints."""
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+        
+        colors = plt.cm.tab10(np.linspace(0, 1, len(all_evolution_data)))
+        
+        for i, evolution_data in enumerate(all_evolution_data):
+            checkpoints = evolution_data['checkpoints']
+            gate_values = evolution_data['gate_values']
+            run_id = evolution_data['run_id']
+            
+            ax.plot(checkpoints, gate_values, 'o-', color=colors[i], 
+                   linewidth=2, markersize=6, label=f'Run {run_id}')
+        
+        ax.set_xlabel('Training Checkpoint')
+        ax.set_ylabel('Insula Gate Value')
+        ax.set_title('Insula Gate Evolution During Training', fontsize=14, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        
+        # Set integer ticks for checkpoints
+        if all_evolution_data:
+            max_checkpoint = max([max(data['checkpoints']) for data in all_evolution_data])
+            ax.set_xticks(range(0, max_checkpoint + 1))
+        
+        plt.tight_layout()
+        delay_suffix = "_with_delay" if self.use_time_delay else "_no_delay"
+        output_path = os.path.join(self.output_dir, f'insula_gate_evolution{delay_suffix}.png')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+
+    def _plot_projection_norm_evolution(self, all_evolution_data):
+        """Plot 2: Insula-to-RNN projection weight norm evolution."""
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+        
+        colors = plt.cm.tab10(np.linspace(0, 1, len(all_evolution_data)))
+        
+        for i, evolution_data in enumerate(all_evolution_data):
+            checkpoints = evolution_data['checkpoints']
+            projection_norms = evolution_data['projection_norms']
+            run_id = evolution_data['run_id']
+            
+            ax.plot(checkpoints, projection_norms, 'o-', color=colors[i], 
+                   linewidth=2, markersize=6, label=f'Run {run_id}')
+        
+        ax.set_xlabel('Training Checkpoint')
+        ax.set_ylabel('Projection Weight Matrix Norm')
+        ax.set_title('Insula→RNN Projection Weight Evolution During Training', fontsize=14, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        
+        # Set integer ticks for checkpoints
+        if all_evolution_data:
+            max_checkpoint = max([max(data['checkpoints']) for data in all_evolution_data])
+            ax.set_xticks(range(0, max_checkpoint + 1))
+        
+        plt.tight_layout()
+        delay_suffix = "_with_delay" if self.use_time_delay else "_no_delay"
+        output_path = os.path.join(self.output_dir, f'insula_projection_norm_evolution{delay_suffix}.png')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+
+    def _plot_weight_topology_snapshots(self, all_evolution_data):
+        """Plot 3: Weight topology heatmap snapshots (early/mid/final)."""
+        if not all_evolution_data:
+            return
+        
+        # Use the first run for topology snapshots
+        evolution_data = all_evolution_data[0]
+        checkpoints = evolution_data['checkpoints']
+        matrices = evolution_data['projection_matrices']
+        
+        if len(checkpoints) < 2:
+            print("   Not enough checkpoints for topology snapshots (need at least 2)")
+            return
+        elif len(checkpoints) < 3:
+            print(f"   Limited checkpoints ({len(checkpoints)}) - showing early/final snapshots only")
+            # Use only early and final for 2 checkpoints
+            snapshot_indices = [0, len(checkpoints) - 1]
+            snapshot_labels = ['Early', 'Final']
+        else:
+            # Standard early/mid/final for 3+ checkpoints
+            early_idx = 0
+            final_idx = len(checkpoints) - 1
+            mid_idx = len(checkpoints) // 2
+            snapshot_indices = [early_idx, mid_idx, final_idx]
+            snapshot_labels = ['Early', 'Mid', 'Final']
+        
+        snapshot_steps = [checkpoints[i] for i in snapshot_indices]
+        
+        # Find global min/max for consistent color scale
+        all_matrices = [matrices[i] for i in snapshot_indices]
+        global_min = min([np.min(matrix) for matrix in all_matrices])
+        global_max = max([np.max(matrix) for matrix in all_matrices])
+        
+        # Create subplot for the snapshots (flexible number)
+        num_snapshots = len(snapshot_indices)
+        fig, axes = plt.subplots(1, num_snapshots, figsize=(5 * num_snapshots, 5))
+        if num_snapshots == 1:
+            axes = [axes]  # Make it iterable
+        fig.suptitle('Insula→RNN Weight Topology Evolution', fontsize=16, fontweight='bold')
+        
+        for i, (idx, label, step) in enumerate(zip(snapshot_indices, snapshot_labels, snapshot_steps)):
+            matrix = matrices[idx]  # Shape: [hidden_size, n_aINS] = [256, 16]
+            
+            # Plot heatmap
+            im = axes[i].imshow(matrix, cmap='RdBu_r', aspect='auto',
+                              vmin=global_min, vmax=global_max)
+            axes[i].set_title(f'{label} (Step {step})')
+            axes[i].set_xlabel('aINS Units')
+            axes[i].set_ylabel('RNN Hidden Units')
+            
+            # Set ticks for aINS units (16 units)
+            axes[i].set_xticks(range(0, matrix.shape[1], max(1, matrix.shape[1]//8)))
+            axes[i].set_yticks(range(0, matrix.shape[0], max(1, matrix.shape[0]//8)))
+        
+        # Add colorbar
+        plt.tight_layout()
+        cbar = fig.colorbar(im, ax=axes, shrink=0.8, aspect=20)
+        cbar.set_label('Weight Value')
+        
+        delay_suffix = "_with_delay" if self.use_time_delay else "_no_delay"
+        output_path = os.path.join(self.output_dir, f'insula_weight_topology_snapshots{delay_suffix}.png')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+
+    def _save_insula_runs_summary(self, results):
+        """Save training summary for insula runs."""
+        summary = {
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'bisection_parameters': self.bisection_parameters,
+            'use_time_delay': self.use_time_delay,
+            'num_runs': self.num_runs,
+            'networks': {}
+        }
+
+        for network_type, network_results in results.items():
+            successful_runs = network_results['successful_runs']
+            failed_runs = network_results['failed_runs']
+            total_time = network_results['total_training_time']
+
+            network_summary = {
+                'total_runs': self.num_runs,
+                'successful_runs': successful_runs,
+                'failed_runs': failed_runs,
+                'success_rate': successful_runs / self.num_runs,
+                'total_training_time': total_time,
+                'average_training_time': total_time / self.num_runs if self.num_runs > 0 else 0,
+                'runs': []
+            }
+
+            for run_result in network_results['runs']:
+                run_detail = {
+                    'run_idx': run_result['run_idx'],
+                    'status': run_result['status'],
+                    'training_time': run_result['training_time'],
+                    'model_dir': run_result['model_dir'],
+                    'successful': run_result['status'] == 'OK'
+                }
+                network_summary['runs'].append(run_detail)
+
+            summary['networks'][network_type] = network_summary
+
+        with open(os.path.join(self.output_dir, 'enhanced_insula_analysis_summary.json'), 'w') as f:
+            import json
+            json.dump(summary, f, indent=2)
+
+        print(f"Enhanced insula analysis summary saved")
+
     def _save_multiple_runs_summary(self, results):
         """Save training summary for multiple runs."""
         summary = {
@@ -1394,6 +2250,74 @@ class EnhancedPiezoTimeBisectionAnalyzer:
             json.dump(summary, f, indent=2)
 
         print(f"Enhanced consolidated analysis summary saved")
+
+    def run_insula_analysis(self, max_samples=5e5, load_existing=False):
+        """Run the complete enhanced insula analysis (insula networks only)."""
+        print(f"\nENHANCED INSULA NETWORK ANALYSIS (TIME BISECTION TASK)")
+        print("=" * 80)
+        print(f"Analysis Parameters:")
+        print(f"   Task: Time Bisection")
+        print(f"   Bisection standards: {self.bisection_parameters['short_standard']}-{self.bisection_parameters['long_standard']}ms")
+        print(f"   Max Samples: {max_samples:,.0f}")
+        print(f"   Runs per network: {self.num_runs}")
+        print(f"   Time Delay: {'ENABLED' if self.use_time_delay else 'DISABLED'}")
+        print(f"   Load existing: {'ENABLED' if load_existing else 'DISABLED'}")
+        print(f"   Output: {self.output_dir}")
+        print("ENHANCEMENTS:")
+        print("   Insula gate tracking (initial vs final values)")
+        print("   Convergence timing analysis (time to reach 90%/95% thresholds)")
+
+        # Step 1: Skip piezo simulation for insula-only analysis
+        print(f"\nStep 1: Skipping Piezo Response Simulation (insula-only mode)")
+        print("   Piezo simulation not relevant for insula networks")
+        piezo_data = None
+
+        # Step 2: Train or load insula networks
+        if load_existing:
+            print(f"\nStep 2: Loading Existing Insula Networks (NOT IMPLEMENTED)")
+            print("   This enhanced version focuses on training new networks")
+            print("   For loading existing, use original piezo_comparison.py")
+            return None
+        else:
+            print(f"\nStep 2: Training New Insula Networks with Enhanced Tracking")
+            training_results = self.train_insula_networks(max_samples)
+
+        # Step 3: Enhanced convergence analysis
+        print(f"\nStep 3: Enhanced Convergence Analysis")
+        convergence_results = self.analyze_convergence_timing(training_results)
+
+        # Step 4: Calculate mean accuracies
+        print(f"\nStep 4: Mean Accuracy Analysis")
+        accuracy_stats = self._calculate_mean_accuracies(training_results)
+
+        # Step 5: Generate individual model graphs
+        print(f"\nStep 5: Individual Model Visualizations")
+        self._plot_individual_model_performance(training_results)
+
+        # Step 5.1: Generate insula-specific visualizations
+        print(f"\nStep 5.1: Insula-Specific Visualizations")
+        self.plot_insula_weight_verification(training_results)
+        self.plot_insula_cortex_connections(training_results)
+        self.plot_insula_activity_analysis(training_results)
+        self.plot_dynamic_weight_evolution(training_results)
+
+        # Step 6: Analyze eigenvalues and spectral radii
+        print(f"\nStep 6: Individual Runs Eigenvalue & Spectral Radius Analysis")
+        eigenvalue_results = self.analyze_eigenvalues(training_results)
+
+        # Step 7: Generate final enhanced report
+        print(f"\nStep 7: Enhanced Final Report")
+        self._generate_enhanced_insula_report(training_results, eigenvalue_results, piezo_data, convergence_results, accuracy_stats)
+
+        print(f"\nENHANCED INSULA ANALYSIS COMPLETE!")
+        print(f"All enhanced results saved to: {self.output_dir}")
+
+        return {
+            'training_results': training_results,
+            'eigenvalue_results': eigenvalue_results,
+            'piezo_data': piezo_data,
+            'convergence_results': convergence_results
+        }
 
     def run_full_comparison(self, max_samples=5e5, load_existing=False):
         """Run the complete enhanced comparison analysis."""
@@ -1454,6 +2378,210 @@ class EnhancedPiezoTimeBisectionAnalyzer:
             'piezo_data': piezo_data,
             'convergence_results': convergence_results
         }
+
+    def _generate_enhanced_insula_report(self, training_results, eigenvalue_results, piezo_data,
+                                         convergence_results, accuracy_stats):
+        """Generate enhanced final report for insula analysis."""
+        report = []
+        report.append("ENHANCED INSULA NETWORK ANALYSIS (TIME BISECTION TASK)")
+        report.append("=" * 60)
+        report.append(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        report.append(f"Training runs per network: {self.num_runs}")
+        report.append(f"Time Delay: {'ENABLED' if self.use_time_delay else 'DISABLED'}")
+        report.append(f"Max samples per run: {5e5:,.0f}")
+        report.append("")
+        report.append("TASK: TIME BISECTION")
+        report.append("Networks learn to classify time intervals as short or long")
+        report.append("Bisection task with standards and test intervals")
+        report.append("")
+        report.append("INSULA INTERFACE:")
+        report.append("   Pretrained + frozen insula module")
+        report.append("   ECG processing with aINS projection to RNN")
+        report.append("   Learnable gate parameter for modulation strength")
+        report.append("")
+
+        # Training Results Summary
+        report.append("INSULA TRAINING RESULTS")
+        report.append("-" * 25)
+
+        total_successful = 0
+        total_failed = 0
+
+        for network_type, network_results in training_results.items():
+            successful = network_results['successful_runs']
+            failed = network_results['failed_runs']
+            total_time = network_results['total_training_time']
+            success_rate = successful / self.num_runs * 100
+
+            total_successful += successful
+            total_failed += failed
+
+            report.append(f"{network_type.upper()}:")
+            report.append(f"  Successful runs: {successful}/{self.num_runs} ({success_rate:.1f}%)")
+            report.append(f"  Failed runs: {failed}/{self.num_runs}")
+            report.append(f"  Total training time: {total_time:.1f}s")
+            report.append(f"  Average time per run: {total_time / self.num_runs:.1f}s")
+            report.append("")
+
+        report.append(f"OVERALL TRAINING SUMMARY:")
+        report.append(f"  Total successful runs: {total_successful}/{self.num_runs}")
+        report.append(f"  Total failed runs: {total_failed}/{self.num_runs}")
+        report.append(f"  Overall success rate: {total_successful / self.num_runs * 100:.1f}%")
+        report.append("")
+
+        # Enhanced Insula Gate Analysis
+        report.append("ENHANCED INSULA GATE ANALYSIS")
+        report.append("-" * 33)
+
+        insula_gate_stats = []
+        if 'insula' in training_results:
+            for run_result in training_results['insula']['runs']:
+                if run_result['status'] == 'OK':
+                    insula_file = os.path.join(run_result['model_dir'], 'insula_analysis.pkl')
+                    if os.path.exists(insula_file):
+                        try:
+                            with open(insula_file, 'rb') as f:
+                                insula_data = pickle.load(f)
+                            insula_gate_stats.append(insula_data)
+                        except:
+                            continue
+
+        if insula_gate_stats:
+            # Safely extract final gate values, handling cases where data might be incomplete
+            final_gate_values = []
+            for data in insula_gate_stats:
+                if data and data.get('final_connections') and 'gate_value' in data['final_connections']:
+                    final_gate_values.append(data['final_connections']['gate_value'])
+            
+            if final_gate_values:
+                report.append(f"Insula Gate Evolution:")
+                report.append(f"  Final gate values: {np.mean(final_gate_values):.3f} ± {np.std(final_gate_values):.3f}")
+                report.append(f"  Range: [{np.min(final_gate_values):.3f}, {np.max(final_gate_values):.3f}]")
+                report.append(f"  Analysis based on {len(final_gate_values)} successful insula runs with complete data")
+                
+                # Check if gate values changed significantly from initial
+                initial_gate = 0.2  # Default gate initialization
+                mean_change = np.mean(final_gate_values) - initial_gate
+                report.append(f"  Mean change from initial ({initial_gate:.3f}): {mean_change:.3f}")
+            else:
+                report.append(f"Insula Gate Evolution:")
+                report.append(f"  No complete gate evolution data available")
+                report.append(f"  Found {len(insula_gate_stats)} insula runs but no complete gate data")
+        else:
+            report.append("No insula gate data available (no successful insula runs)")
+
+        report.append("")
+
+        # Enhanced Convergence Analysis
+        report.append("ENHANCED CONVERGENCE ANALYSIS")
+        report.append("-" * 32)
+
+        for network_type, conv_data in convergence_results.items():
+            if conv_data['successful_runs'] > 0:
+                report.append(f"{network_type.upper()}:")
+                report.append(f"  Successful runs: {conv_data['successful_runs']}")
+                report.append(f"  Avg training time: {conv_data['avg_training_time']:.1f}s")
+                report.append(f"  Avg training steps: {conv_data['avg_training_steps']:.0f}")
+
+                # Report convergence to different thresholds
+                for threshold_name, stats in conv_data['convergence_stats'].items():
+                    achieved = stats['achieved_count']
+                    total = conv_data['successful_runs']
+                    if achieved > 0:
+                        success_rate = achieved / total * 100
+                        avg_time = np.mean(stats['times'])
+                        avg_steps = np.mean(stats['steps'])
+                        report.append(f"    {threshold_name}: {success_rate:.1f}% achieved, avg {avg_time:.1f}s, {avg_steps:.0f} steps")
+                    else:
+                        report.append(f"    {threshold_name}: 0% achieved")
+                report.append("")
+
+        # Mean Accuracy Analysis
+        report.append("MEAN ACCURACY ANALYSIS (TIME BISECTION TASK)")
+        report.append("-" * 40)
+
+        for network_type, stats in accuracy_stats.items():
+            report.append(f"{network_type.upper()}:")
+            report.append(f"  Mean final accuracy: {stats['mean_accuracy']:.3f} ± {stats['std_accuracy']:.3f}")
+            report.append(f"  Accuracy range: [{stats['min_accuracy']:.3f}, {stats['max_accuracy']:.3f}]")
+            report.append(f"  Mean success probability: {stats['mean_success_prob']:.3f} ± {stats['std_success_prob']:.3f}")
+            report.append(f"  Based on {stats['num_runs']} successful runs")
+            report.append("")
+
+        # Eigenvalue Analysis Results
+        report.append("INDIVIDUAL RUNS EIGENVALUE & SPECTRAL RADIUS ANALYSIS")
+        report.append("-" * 55)
+
+        if eigenvalue_results:
+            for network_type, data in eigenvalue_results.items():
+                report.append(f"{network_type.upper()}:")
+                report.append(f"  Analyzed runs: {len(data['successful_runs'])}")
+                report.append(f"  Spectral radius: {data['mean_spectral_radius']:.4f} ± {data['std_spectral_radius']:.4f}")
+                report.append(f"  Spectral radius range: [{data['min_spectral_radius']:.4f}, {data['max_spectral_radius']:.4f}]")
+
+                if 'eigenvalue_statistics' in data:
+                    stats_list = data['eigenvalue_statistics']
+                    if stats_list:
+                        spectral_radii = [s['spectral_radius'] for s in stats_list]
+                        unstable_runs = sum(1 for sr in spectral_radii if sr > 1.1)
+                        report.append(f"  Potentially unstable runs: {unstable_runs}/{len(spectral_radii)}")
+                report.append("")
+        else:
+            report.append("No eigenvalue analysis available (no successful trainings)")
+            report.append("")
+
+        # Piezo Response Analysis (for reference) - only if piezo data exists
+        if piezo_data is not None:
+            report.append("PIEZO RESPONSE ANALYSIS (REFERENCE)")
+            report.append("-" * 35)
+            correlation = np.corrcoef(piezo_data['slice_means'], piezo_data['piezo_responses'])[0, 1]
+            report.append(f"Slice-Response Correlation: {correlation:.3f}")
+            report.append(f"Heart Rate: {piezo_data['heart_rate']:.0f} BPM")
+            report.append(f"R-Peaks per Task: {len(piezo_data['r_peaks'])}")
+            report.append("")
+        else:
+            report.append("PIEZO RESPONSE ANALYSIS (SKIPPED - INSULA-ONLY MODE)")
+            report.append("-" * 50)
+            report.append("Piezo analysis skipped for insula-only training.")
+            report.append("")
+
+        # Enhanced Insula Summary
+        report.append("ENHANCED INSULA SUMMARY")
+        report.append("-" * 24)
+
+        if 'insula' in accuracy_stats:
+            insula_acc = accuracy_stats['insula']['mean_accuracy']
+            report.append(f"Insula Performance:")
+            report.append(f"  Final accuracy: {insula_acc:.3f} ± {accuracy_stats['insula']['std_accuracy']:.3f}")
+            report.append(f"  Success rate: {total_successful / self.num_runs * 100:.1f}%")
+            report.append(f"  Average training time: {training_results['insula']['total_training_time'] / max(training_results['insula']['successful_runs'], 1):.1f}s")
+
+        report.append("")
+
+        # Save enhanced report
+        report_text = "\n".join(report)
+        with open(os.path.join(self.output_dir, 'enhanced_insula_analysis_report.txt'), 'w') as f:
+            f.write(report_text)
+
+        print("Enhanced insula analysis report saved!")
+
+        # Print summary to console
+        print(f"\nENHANCED INSULA ANALYSIS SUMMARY:")
+        print(f"   Overall success rate: {total_successful / self.num_runs * 100:.1f}%")
+        print(f"   Total training runs: {self.num_runs}")
+        if accuracy_stats:
+            for network_type, stats in accuracy_stats.items():
+                print(f"   {network_type.title()} mean accuracy: {stats['mean_accuracy']:.3f}")
+        print(f"   Eigenvalue analysis: {'Available' if eigenvalue_results else 'Not available'}")
+        if piezo_data is not None:
+            correlation = np.corrcoef(piezo_data['slice_means'], piezo_data['piezo_responses'])[0, 1]
+            print(f"   Piezo correlation: {correlation:.3f}")
+        else:
+            print(f"   Piezo correlation: N/A (insula-only mode)")
+        print(f"   Gate analysis: {'Available' if insula_gate_stats else 'Not available'}")
+        print(f"   Convergence analysis: {'Available' if convergence_results else 'Not available'}")
+        print(f"   Individual plots created: Available")
+        print(f"   Full enhanced report: {os.path.join(self.output_dir, 'enhanced_insula_analysis_report.txt')}")
 
     def _generate_enhanced_report(self, training_results, eigenvalue_results, piezo_data,
                                   convergence_results, accuracy_stats):
@@ -1715,6 +2843,8 @@ def main():
                         help='Number of training runs per network type (default: 5)')
     parser.add_argument('--load-existing', action='store_true',
                         help='Load existing trained models (not implemented in enhanced version)')
+    parser.add_argument('--insula-only', action='store_true',
+                        help='Run insula networks analysis only (instead of piezo vs non-piezo comparison)')
 
     args = parser.parse_args()
 
@@ -1731,9 +2861,15 @@ def main():
         num_runs=args.num_runs
     )
 
-    # Run enhanced comparison
+    # Run analysis
     max_samples = 2e6 if args.full_training else 5e5
-    analyzer.run_full_comparison(max_samples, load_existing=False)
+    
+    if args.insula_only:
+        # Run insula-only analysis
+        analyzer.run_insula_analysis(max_samples, load_existing=False)
+    else:
+        # Run full comparison (piezo vs non-piezo)
+        analyzer.run_full_comparison(max_samples, load_existing=False)
 
 
 if __name__ == "__main__":

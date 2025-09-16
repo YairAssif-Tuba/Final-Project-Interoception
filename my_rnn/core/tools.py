@@ -5,7 +5,7 @@ This module provides essential utilities for managing neural network models:
 2. Creating directories for model output
 3. Managing training logs
 
-ENHANCED: Support for piezo-enhanced models
+ENHANCED: Support for piezo-enhanced and insula-enhanced models
 BACKWARD COMPATIBLE: All original functionality preserved
 
 These functions support the interval timing tasks (interval_production and interval_comparison)
@@ -45,6 +45,43 @@ def validate_piezo_hp(hp):
 
     print(f"✅ Simplified piezo hyperparameters validated")
 
+
+def validate_insula_hp(hp):
+    """Validate insula-specific hyperparameters."""
+    if not hp.get('use_insula', False):
+        return  # No validation needed if insula is disabled
+
+    # Check for required insula parameters
+    required_params = [
+        'insula_weights_path',
+        'insula_pooling',
+        'insula_projection_init_scale',
+        'insula_gate_init'
+    ]
+
+    # Check for required parameters
+    for key in required_params:
+        if key not in hp:
+            raise ValueError(f"Missing required insula parameter: {key}")
+
+    # Validate ranges and values
+    if hp['insula_projection_init_scale'] <= 0:
+        raise ValueError(f"insula_projection_init_scale must be positive, got {hp['insula_projection_init_scale']}")
+
+    if not (0.0 <= hp['insula_gate_init'] <= 1.0):
+        raise ValueError(f"insula_gate_init must be in [0, 1], got {hp['insula_gate_init']}")
+
+    if hp['insula_pooling'] not in ['max', 'mean_logits']:
+        raise ValueError(f"insula_pooling must be 'max' or 'mean_logits', got {hp['insula_pooling']}")
+
+    # Check if weights file exists (optional warning, not error)
+    import os
+    if not os.path.exists(hp['insula_weights_path']):
+        print(f"⚠️ Warning: Insula weights file not found: {hp['insula_weights_path']}")
+
+    print(f"✅ Insula hyperparameters validated")
+
+
 def load_hp(model_dir):
     """Load hyperparameters from a model directory.
     
@@ -78,6 +115,13 @@ def load_hp(model_dir):
         print(f"⚠️ Piezo validation warning: {e}")
         print("   Model may not function correctly with piezo interface")
     
+    # Validate insula parameters if enabled
+    try:
+        validate_insula_hp(hp)
+    except ValueError as e:
+        print(f"⚠️ Insula validation warning: {e}")
+        print("   Model may not function correctly with insula interface")
+    
     return hp
 
 
@@ -97,6 +141,13 @@ def save_hp(hp, model_dir):
             validate_piezo_hp(hp_copy)
         except ValueError as e:
             print(f"⚠️ Warning: Saving potentially invalid piezo hyperparameters: {e}")
+    
+    # Validate before saving if insula is enabled
+    if hp_copy.get('use_insula', False):
+        try:
+            validate_insula_hp(hp_copy)
+        except ValueError as e:
+            print(f"⚠️ Warning: Saving potentially invalid insula hyperparameters: {e}")
     
     with open(os.path.join(model_dir, 'hp.json'), 'w') as f:
         json.dump(hp_copy, f, indent=2)
@@ -258,6 +309,7 @@ def analyze_model_directory(model_dir):
         'has_log': False,
         'checkpoints': [],
         'use_piezo': False,
+        'has_insula': False,
         'pretraining_checkpoint': False
     }
     
@@ -269,11 +321,12 @@ def analyze_model_directory(model_dir):
     analysis['has_model'] = os.path.exists(os.path.join(model_dir, 'model.pth'))
     analysis['has_log'] = os.path.exists(os.path.join(model_dir, 'log.json'))
     
-    # Check for piezo configuration
+    # Check for piezo and insula configuration
     if analysis['has_hp']:
         try:
             hp = load_hp(model_dir)
             analysis['use_piezo'] = hp.get('use_piezo', False)
+            analysis['use_insula'] = hp.get('use_insula', False)
         except:
             pass
     
@@ -326,6 +379,13 @@ def print_model_summary(model_dir):
     else:
         print(f"🫀 Piezo interface: ❌ DISABLED")
     
+    # Insula status
+    if analysis['use_insula']:
+        print(f"🧠 Insula interface: ✅ ENABLED")
+        print(f"   Pretrained (frozen): ✅")
+    else:
+        print(f"🧠 Insula interface: ❌ DISABLED")
+    
     # Checkpoints
     if analysis['checkpoints']:
         print(f"💾 Checkpoints ({len(analysis['checkpoints'])}):")
@@ -338,7 +398,7 @@ def print_model_summary(model_dir):
 
 
 def migrate_legacy_model(model_dir, backup=True):
-    """Migrate a legacy (non-piezo) model directory to support piezo.
+    """Migrate a legacy model directory to support piezo and insula interfaces.
     
     Args:
         model_dir: Path to legacy model directory
@@ -353,11 +413,17 @@ def migrate_legacy_model(model_dir, backup=True):
         print(f"❌ Cannot migrate: Invalid model directory")
         return False
         
-    if analysis['use_piezo']:
+    if analysis['use_piezo'] and analysis['use_insula']:
+        print(f"ℹ️ Model already supports both piezo and insula interfaces")
+        return True
+    elif analysis['use_piezo']:
         print(f"ℹ️ Model already supports piezo interface")
         return True
+    elif analysis['use_insula']:
+        print(f"ℹ️ Model already supports insula interface") 
+        return True
     
-    print(f"🔄 Migrating legacy model to support piezo interface...")
+    print(f"🔄 Migrating legacy model to support piezo and insula interfaces...")
     
     try:
         # Load existing hyperparameters
@@ -383,11 +449,26 @@ def migrate_legacy_model(model_dir, backup=True):
         hp['pretraining_num_samples'] = 100
         hp['pretraining_T'] = 50
         
+        # Add insula parameters (disabled by default)
+        hp['use_insula'] = False
+        hp['insula_weights_path'] = 'standalone_insula_module/standalone_insula_train_final/insula_weights_best.pt'
+        hp['insula_pooling'] = 'max'
+        hp['insula_projection_init_scale'] = 1.0
+        hp['insula_gate_init'] = 0.2
+        hp['insula_decimate_enabled'] = True
+        hp['insula_decimate_taps'] = 31
+        hp['insula_decimate_cutoff_hz'] = 40.0
+        hp['insula_decimate_window'] = 'hamming'
+        hp['insula_target_fs'] = None
+        hp['insula_centering'] = False
+        hp['insula_debug_logging'] = False
+        
         # Save updated hyperparameters
         save_hp(hp, model_dir)
         
-        print(f"✅ Migration complete - piezo support added (disabled by default)")
+        print(f"✅ Migration complete - piezo and insula support added (both disabled by default)")
         print(f"   To enable piezo: set 'use_piezo': true in hp.json")
+        print(f"   To enable insula: set 'use_insula': true in hp.json")
         
         return True
         

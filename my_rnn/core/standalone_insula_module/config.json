@@ -1,0 +1,33 @@
+{
+  "model_architecture": {
+    "n_input": 2,
+    "n_insula": 64,
+    "n_gINS": 24,
+    "n_dINS": 24,
+    "n_aINS": 16,
+    "activation": "tanh"
+  },
+  "dynamics": {
+    "dt_ms": 10.0,
+    "tau_ms": 70.0,
+    "alpha": 0.14285714285714285,
+    "sigma_rec": 0.05
+  },
+  "ecg_processing": {
+    "fs": 100,
+    "zscore_eps": 1e-8
+  },
+  "peak_detection": {
+    "peak_thr": 0.7,
+    "peak_min_dist_ms": 300.0,
+    "zthr": 2.5,
+    "refractory_ms": 300.0,
+    "tolerance_ms": 50.0
+  },
+  "best_hyperparameters": {
+    "focal_alpha": 0.23903095579116773,
+    "focal_gamma": 2.8977710745066663,
+    "beat_head_bias": -3.0,
+    "sparsity_weight": 0.0010249322216924156
+  }
+}

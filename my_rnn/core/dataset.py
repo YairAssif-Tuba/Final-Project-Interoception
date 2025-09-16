@@ -108,8 +108,8 @@ class TaskDataset(Dataset):
             if hasattr(self.trial, 'comparison_intervals'):
                 result['comparison_intervals'] = self.trial.comparison_intervals
 
-        # MODIFIED: Real cardiac data integration for piezo models
-        if self.hp.get('use_piezo', False):
+        # MODIFIED: Real cardiac data integration for piezo and insula models
+        if self.hp.get('use_piezo', False) or self.hp.get('use_insula', False):
             T = self.trial.x.shape[0]
             dt = self.hp.get('dt', 20)
             task_duration_ms = T * dt

@@ -9,3 +9,35 @@ ecg_data/
 # IDE files
 .vscode/
 .idea/ 
+
+# Deprecated data
+Deprecated/
+
+# Runs
+runs/
+
+# Scripts
+analyze_hrv_data.py
+calculate_real_hrv.py
+compare_trial_configs.py
+convert_hr_cal_to_npy.py
+create_combined_test_set.py
+create_csv_split.py
+debug_hrv_metrics.py
+evaluate_best_checkpoints_test.py
+find_running_optuna.sh
+generate_hrv_plots_direct.py
+generate_hrv_plots.py
+monitor_optuna.sh
+quick_test.py
+recover_optuna.sh
+run_extended_tmux.sh
+run_optuna_persistent.sh
+run_optuna_tmux.sh
+run_optuna_tracked.sh
+simple_hrv_check.py
+split_hr_cal_libraries.py
+stop_optuna.sh
+threshold_sweep.py
+
+model/

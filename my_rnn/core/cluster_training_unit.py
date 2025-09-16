@@ -11,7 +11,7 @@ import os
 import shutil
 
 
-def train_model(rule_name, w2_reg, r2_reg, index, use_piezo=False, **kwargs):
+def train_model(rule_name, w2_reg, r2_reg, index, use_piezo=False, use_insula=False, **kwargs):
     """Train a single model with specified parameters.
 
     Args:
@@ -32,11 +32,13 @@ def train_model(rule_name, w2_reg, r2_reg, index, use_piezo=False, **kwargs):
     # Add piezo suffix to directory name if enabled
     if use_piezo:
         local_folder_name += "_piezo"
+    if use_insula:
+        local_folder_name += "_insula"
 
     # Keep attempting to train until successful
     while True:
         # Set up hyperparameters with specified regularization and piezo setting
-        hp = default.get_default_hp(rule_name, use_piezo=use_piezo)
+        hp = default.get_default_hp(rule_name, use_piezo=use_piezo, use_insula=use_insula)
         hp['l2_firing_rate'] = r2_reg
         hp['l2_weight'] = w2_reg
 
@@ -100,8 +102,8 @@ def train_model(rule_name, w2_reg, r2_reg, index, use_piezo=False, **kwargs):
                 os.system(run_cmd)
                 has_pretraining = False  # Define for consistency
 
-            piezo_str = " with PIEZO" if use_piezo else ""
-            print(f"Training failed for {rule_name}{piezo_str} with w2={w2_reg}, r2={r2_reg}. Retrying...")
+            hb_str = " with PIEZO" if use_piezo else (" with INSULA" if use_insula else "")
+            print(f"Training failed for {rule_name}{hb_str} with w2={w2_reg}, r2={r2_reg}. Retrying...")
 
             if use_piezo and has_pretraining:
                 print("🔄 Retrying with preserved pretraining checkpoint...")
@@ -109,7 +111,7 @@ def train_model(rule_name, w2_reg, r2_reg, index, use_piezo=False, **kwargs):
 
 def print_usage():
     """Print usage information."""
-    print("Usage: python -m my_rnn.cluster_training_unit <rule_name> <w2_reg> <r2_reg> <index> [device] [use_piezo]")
+    print("Usage: python -m my_rnn.cluster_training_unit <rule_name> <w2_reg> <r2_reg> <index> [device] [hb_mode]")
     print()
     print("Arguments:")
     print("  rule_name    : Task rule name (e.g., 'time_bisection', 'interval_production', 'interval_comparison')")
@@ -117,7 +119,7 @@ def print_usage():
     print("  r2_reg       : L2 firing rate regularization strength (e.g., 0.0)")
     print("  index        : Model index for saving (e.g., 1)")
     print("  device       : 'cuda' or 'cpu' (default: cuda)")
-    print("  use_piezo    : 'true' or 'false' to enable/disable piezo interface (default: false)")
+    print("  hb_mode      : one of 'default', 'piezo', 'insula' (default: 'default')")
     print()
     print("Examples:")
     print("  # Standard training without piezo")
@@ -155,16 +157,22 @@ if __name__ == "__main__":
         is_cuda = True
         is_cuda = False # DELETEYAIR - Remove this line to default to CUDA
 
-    # Parse optional piezo argument
+    # Parse optional heartbeat mode argument (default/piezo/insula)
     use_piezo = False
+    use_insula = False
     if len(sys.argv) > 6:
-        piezo_mode = sys.argv[6].lower()
-        if piezo_mode in ['true', '1', 'yes', 'on']:
-            use_piezo = True
-        elif piezo_mode in ['false', '0', 'no', 'off']:
+        hb_mode = sys.argv[6].lower()
+        if hb_mode in ['default', 'none', 'off']:
             use_piezo = False
+            use_insula = False
+        elif hb_mode == 'piezo':
+            use_piezo = True
+            use_insula = False
+        elif hb_mode == 'insula':
+            use_piezo = False
+            use_insula = True
         else:
-            print(f"❌ Error: Invalid piezo argument '{sys.argv[6]}'. Use 'true' or 'false'.")
+            print(f"❌ Error: Invalid hb_mode '{sys.argv[6]}'. Use 'default', 'piezo', or 'insula'.")
             print_usage()
             sys.exit(1)
 
@@ -186,13 +194,10 @@ if __name__ == "__main__":
     
     if use_piezo:
         print(f"🫀 Piezo interface: ✅ ENABLED")
-        print(f"   - Two-phase training (cardiac pretraining → main task)")
-        print(f"   - Cardiac modulation during cognitive task")
-        print(f"   - Enhanced network connectivity")
+    elif use_insula:
+        print(f"🧠 Insula interface: ✅ ENABLED (pretrained, frozen)")
     else:
-        print(f"🫀 Piezo interface: ❌ DISABLED")
-        print(f"   - Standard Bi & Zhou architecture")
-        print(f"   - Original training protocol")
+        print(f"🚫 Heartbeat interface: ❌ DISABLED (default)")
     
     print("=" * 60)
 
@@ -211,7 +216,7 @@ if __name__ == "__main__":
 
     # Start training with the specified parameters
     try:
-        train_model(rule_name, w2_reg, r2_reg, index, use_piezo=use_piezo, is_cuda=is_cuda)
+        train_model(rule_name, w2_reg, r2_reg, index, use_piezo=use_piezo, use_insula=use_insula, is_cuda=is_cuda)
         
         # Success message
         print("\n" + "=" * 60)
@@ -221,6 +226,10 @@ if __name__ == "__main__":
             print("🫀 Piezo-enhanced model training finished")
             print("   - Cardiac pretraining completed")
             print("   - Main task training with piezo modulation completed")
+        elif use_insula:
+            print("🧠 Insula-enhanced model training finished")
+            print("   - Pretrained insula (frozen)")
+            print("   - Main task training with insula modulation completed")
         else:
             print("🧠 Standard model training finished")
         print(f"💾 Model saved with index: {index}")
