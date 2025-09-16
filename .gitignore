@@ -1,0 +1,11 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Generated data
+ecg_data/
+
+# IDE files
+.vscode/
+.idea/ 
