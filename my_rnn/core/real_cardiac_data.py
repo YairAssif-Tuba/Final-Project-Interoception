@@ -5,8 +5,8 @@ Real Cardiac Data Integration for Piezo Interface
 This module loads and processes real precompiled cardiac CSV files for use
 with the RNN piezo interface, replacing the synthetic cardiac data generation.
 
-Data Path: /Users/itanarbuldaliot/Documents/prj_interoception_modeling/10shrv0
-Code Path: /Users/itanarbuldaliot/Documents/prj_interoception_modeling/my_rnn/core
+Data Path: /storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/10shrv0
+Code Path: /storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/prj_interoception_modeling/my_rnn/core
 
 CSV Format:
 - Time: Float (seconds)
@@ -41,16 +41,16 @@ class RealCardiacDataLoader:
         """
         # Define available cardiac libraries
         self.cardiac_libraries = {
-            "hr60_hrv0cal": "/Users/itanarbuldaliot/Documents/prj_interoception_modeling/hr60_hrv0cal",
-            "hr60_hrv1cal": "/Users/itanarbuldaliot/Documents/prj_interoception_modeling/hr60_hrv1cal",
-            "hr60_hrv3cal": "/Users/itanarbuldaliot/Documents/prj_interoception_modeling/hr60_hrv3cal",
-            "hr90_hrv0cal": "/Users/itanarbuldaliot/Documents/prj_interoception_modeling/hr90_hrv0cal",
-            "hr90_hrv1cal": "/Users/itanarbuldaliot/Documents/prj_interoception_modeling/hr90_hrv1cal",
-            "hr90_hrv3cal": "/Users/itanarbuldaliot/Documents/prj_interoception_modeling/hr90_hrv3cal",
-            "hr100_hrv0cal": "/Users/itanarbuldaliot/Documents/prj_interoception_modeling/hr100_hrv0cal",
-            "hr100_hrv1cal": "/Users/itanarbuldaliot/Documents/prj_interoception_modeling/hr100_hrv1cal",
-            "hr100_hrv3cal": "/Users/itanarbuldaliot/Documents/prj_interoception_modeling/hr100_hrv3cal",
-            "test": "/Users/itanarbuldaliot/Documents/prj_interoception_modeling/ecg_libraries_hr_cal_csv_split/test",
+            "hr60_hrv0cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr60_hrv0cal",
+            "hr60_hrv1cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr60_hrv1cal",
+            "hr60_hrv3cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr60_hrv3cal",
+            "hr90_hrv0cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr90_hrv0cal",
+            "hr90_hrv1cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr90_hrv1cal",
+            "hr90_hrv3cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr90_hrv3cal",
+            "hr100_hrv0cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr100_hrv0cal",
+            "hr100_hrv1cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr100_hrv1cal",
+            "hr100_hrv3cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr100_hrv3cal",
+            "test": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/ecg_libraries_hr_cal_csv_split/test",
             # Add your other libraries here
         }
 
