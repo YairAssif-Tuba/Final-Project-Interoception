@@ -37,11 +37,11 @@ PATHS = {
     "LOGS_BASE_DIR": PROJECT_ROOT / "logs",
     
     # Cardiac data extracted from zip file - UPDATE THIS FOR YOUR SYSTEM
-    "CARDIAC_DATA_EXTRACTED": PROJECT_ROOT / "data" / "cardiac_data",
+    "CARDIAC_DATA_EXTRACTED": PROJECT_ROOT / "data" / "HB_dataset",
     
     # Paths within the extracted cardiac data
-    "CARDIAC_DATA_BASE": PROJECT_ROOT / "data" / "cardiac_data", 
-    "ECG_SPLIT_DIR": PROJECT_ROOT / "data" / "cardiac_data" / "ecg_libraries_hr_cal_split",
+    "CARDIAC_DATA_BASE": PROJECT_ROOT / "data" / "HB_dataset", 
+    "ECG_SPLIT_DIR": PROJECT_ROOT / "data" / "HB_dataset" / "ecg_libraries_hr_cal_csv_split",
 
     # Analysis results paths
     "LIBRARY_RESULTS_BASE": PROJECT_ROOT / "library_results",

@@ -41,3 +41,7 @@ stop_optuna.sh
 threshold_sweep.py
 
 model/
+
+data/
+
+venv/
