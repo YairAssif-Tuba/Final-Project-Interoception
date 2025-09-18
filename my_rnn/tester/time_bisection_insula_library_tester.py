@@ -1,9 +1,11 @@
 """
-Time Bisection Cardiac Library Comparison Tester
-================================================
+Time Bisection Insula Library Comparison Tester
+===============================================
 
-Tests time bisection piezo models across different cardiac libraries
+Tests time bisection insula models across different cardiac libraries
 to assess robustness and optimal cardiac data sources.
+
+Based on time_bisection_library_tester.py but adapted for insula models.
 """
 
 import os
@@ -18,7 +20,7 @@ from collections import defaultdict
 import pandas as pd
 
 # Add project imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
 
 from run import Runner
 import tools
@@ -27,10 +29,10 @@ import default
 from real_cardiac_data import create_real_cardiac_data_for_task
 
 
-class TimeBisectionCardiacLibraryTester:
-    """Test time bisection models across different cardiac libraries"""
+class TimeBisectionInsulaLibraryTester:
+    """Test time bisection insula models across different cardiac libraries"""
 
-    def __init__(self, base_results_dir="time_bisection_cardiac_library_results"):
+    def __init__(self, base_results_dir="time_bisection_insula_cardiac_library_results"):
         self.base_results_dir = base_results_dir
         self.rule_name = 'time_bisection'
 
@@ -50,7 +52,7 @@ class TimeBisectionCardiacLibraryTester:
 
         tools.mkdir_p(base_results_dir)
 
-        print(f"Time Bisection Cardiac Library Tester initialized")
+        print(f"Time Bisection Insula Library Tester initialized")
         print(f"Results directory: {self.base_results_dir}")
         print(f"Available cardiac libraries: {list(self.cardiac_libraries.keys())}")
 
@@ -87,7 +89,6 @@ class TimeBisectionCardiacLibraryTester:
                         {'duration': 800, 'short_standard': 300, 'long_standard': 900, 'is_ood': True, 'ood_type': 'below_range'},
                     ]
                     selected.extend(ood_conditions)
-
 
                 print(
                     f"Using dataset conditions: {len(selected)} total ({len(selected) - (len(ood_conditions) if include_ood else 0)} from dataset)")
@@ -130,14 +131,14 @@ class TimeBisectionCardiacLibraryTester:
     def test_model_with_single_library(self, model_dir, cardiac_library, test_conditions):
         """Test a single model with one specific cardiac library - FIXED AND DEBUGGED VERSION"""
 
-        # Verify model exists and has piezo
+        # Verify model exists and has insula
         analysis = tools.analyze_model_directory(model_dir)
         if not analysis['exists']:
             print(f"Model directory not found: {model_dir}")
             return None
 
-        if not analysis['use_piezo']:
-            print(f"Model {model_dir} is not a piezo model - skipping")
+        if not analysis['use_insula']:
+            print(f"Model {model_dir} is not an insula model - skipping")
             return None
 
         model_name = os.path.basename(model_dir)
@@ -289,38 +290,20 @@ class TimeBisectionCardiacLibraryTester:
 
         return results
 
-    def _calculate_time_bisection_performance_debug(self, trial, outputs, condition, debug_info):
-        """Calculate performance with extensive debugging to identify the issue"""
+    def _calculate_time_bisection_performance(self, trial, outputs, condition):
+        """Calculate time bisection performance with target mismatch debugging"""
 
-        y = trial.y  # [T, B, O] - targets
+        y = trial.y  # [T, B, O] - targets from task generation
         T, B, O = outputs.shape
 
-        # DEBUG: Print shapes and basic info
-        debug_info['trial_y_shape'] = y.shape
-        debug_info['outputs_shape'] = outputs.shape
-        debug_info['T'] = T
-        debug_info['B'] = B
-        debug_info['O'] = O
-
-        # DEBUG: Check target values
-        debug_info['targets_min'] = y.min()
-        debug_info['targets_max'] = y.max()
-        debug_info['targets_sum_total'] = y.sum()
-        debug_info['targets_nonzero_count'] = (y != 0).sum()
-
-        # Find response time from targets
+        # Find response timing (from library tester logic)
         targets_active = (np.abs(y).sum(axis=2) > 0)  # [T, B]
         has_target = targets_active.any(axis=0)  # [B]
 
         if not has_target.any():
-            debug_info['error'] = 'No active targets found'
             return {'accuracy': 0.0, 'debug_error': 'no_active_targets'}
 
         response_idx_targets = targets_active.astype(float).argmax(axis=0)  # [B]
-
-        # DEBUG: Response timing
-        debug_info['response_idx'] = response_idx_targets.tolist()
-        debug_info['has_target'] = has_target.tolist()
 
         # Fallback from cost mask
         cm = trial.cost_mask
@@ -340,216 +323,9 @@ class TimeBisectionCardiacLibraryTester:
         chosen_logits = logits_b[rows, response_idx, :]  # [B, O]
         chosen_targets = targets_b[rows, response_idx, :]  # [B, O]
 
-        # DEBUG: Check what we're comparing
-        debug_info['chosen_logits_shape'] = chosen_logits.shape
-        debug_info['chosen_targets_shape'] = chosen_targets.shape
-        debug_info['chosen_logits_sample'] = chosen_logits[0].tolist() if B > 0 else []
-        debug_info['chosen_targets_sample'] = chosen_targets[0].tolist() if B > 0 else []
-
         # Calculate predictions and accuracy
         pred_classes = np.argmax(chosen_logits, axis=1)  # [B]
         target_classes = np.argmax(chosen_targets, axis=1)  # [B]
-
-        # DEBUG: Check class predictions
-        debug_info['pred_classes'] = pred_classes.tolist()
-        debug_info['target_classes'] = target_classes.tolist()
-        debug_info['pred_class_0_count'] = (pred_classes == 0).sum()
-        debug_info['pred_class_1_count'] = (pred_classes == 1).sum()
-        debug_info['target_class_0_count'] = (target_classes == 0).sum()
-        debug_info['target_class_1_count'] = (target_classes == 1).sum()
-
-        correct = (pred_classes == target_classes).astype(float)
-        accuracy = float(np.mean(correct)) if correct.size > 0 else 0.0
-
-        # DEBUG: Final accuracy calculation
-        debug_info['correct_predictions'] = correct.tolist()
-        debug_info['num_correct'] = correct.sum()
-        debug_info['total_predictions'] = len(correct)
-        debug_info['calculated_accuracy'] = accuracy
-
-        # CRITICAL DEBUG: Check if the issue is with target generation
-        duration = condition.get('duration', 0)
-        short_std = condition.get('short_standard', 1000)
-        long_std = condition.get('long_standard', 2000)
-
-        # What SHOULD the target be based on dataset logic?
-        if 'correct_choice' in condition:
-            expected_target_class = condition['correct_choice']
-            debug_info['expected_from_dataset'] = expected_target_class
-        else:
-            # Fallback to closest standard logic
-            short_distance = abs(duration - short_std)
-            long_distance = abs(duration - long_std)
-            expected_target_class = 0 if short_distance < long_distance else 1
-            debug_info['expected_from_closest'] = expected_target_class
-
-        # What does the bisection point method give?
-        bisection_point = (short_std + long_std) / 2
-        bisection_target_class = 0 if duration <= bisection_point else 1
-        debug_info['expected_from_bisection'] = bisection_target_class
-        debug_info['duration'] = duration
-        debug_info['bisection_point'] = bisection_point
-        debug_info['short_std'] = short_std
-        debug_info['long_std'] = long_std
-
-        # Check if there's a mismatch between expected and actual targets
-        if len(target_classes) > 0:
-            actual_target_class = target_classes[0]  # First batch element
-            debug_info['actual_target_class'] = int(actual_target_class)
-            debug_info['target_mismatch'] = actual_target_class != expected_target_class
-
-        return {
-            'accuracy': float(accuracy),
-            'correct_predictions': int(correct.sum()) if correct.size > 0 else 0,
-            'total_predictions': int(correct.size),
-            'duration': duration,
-            'ground_truth_class': int(target_classes[0]) if len(target_classes) > 0 else -1,
-            'predicted_class': int(pred_classes[0]) if len(pred_classes) > 0 else -1
-        }
-
-    def _summarize_performance_with_debug(self, test_results):
-        """Summarize performance with debugging information AND ID/OOD breakdown"""
-
-        if not test_results:
-            return {}
-
-        # Extract accuracies and debug info
-        accuracies = []
-        id_accuracies = []  # ADD: Track ID accuracies
-        ood_accuracies = []  # ADD: Track OOD accuracies
-
-        debug_summary = {
-            'target_mismatches': 0,
-            'total_conditions': len(test_results),
-            'accuracy_distribution': [],
-            'pred_class_distribution': {'class_0': 0, 'class_1': 0},
-            'target_class_distribution': {'class_0': 0, 'class_1': 0}
-        }
-
-        for r in test_results:
-            perf = r.get('performance', {})
-            debug = r.get('debug_info', {})
-            condition = r.get('condition', {})  # ADD: Get condition info
-
-            if 'accuracy' in perf and not np.isnan(perf['accuracy']):
-                accuracy = perf['accuracy']
-                accuracies.append(accuracy)
-                debug_summary['accuracy_distribution'].append(accuracy)
-
-                # ADD: Separate ID and OOD accuracies
-                is_ood = condition.get('is_ood', False)
-                if is_ood:
-                    ood_accuracies.append(accuracy)
-                else:
-                    id_accuracies.append(accuracy)
-
-                # Check for target mismatches
-                if debug.get('target_mismatch', False):
-                    debug_summary['target_mismatches'] += 1
-
-                # Collect prediction distributions
-                if 'pred_class_0_count' in debug and 'pred_class_1_count' in debug:
-                    debug_summary['pred_class_distribution']['class_0'] += debug['pred_class_0_count']
-                    debug_summary['pred_class_distribution']['class_1'] += debug['pred_class_1_count']
-
-                if 'target_class_0_count' in debug and 'target_class_1_count' in debug:
-                    debug_summary['target_class_distribution']['class_0'] += debug['target_class_0_count']
-                    debug_summary['target_class_distribution']['class_1'] += debug['target_class_1_count']
-
-        costs = [r['cost'] for r in test_results if not np.isnan(r['cost']) and np.isfinite(r['cost'])]
-
-        summary = {
-            'num_conditions': len(test_results),
-            'num_valid': len(accuracies),
-            'nan_rate': (len(test_results) - len(accuracies)) / len(test_results) if test_results else 0,
-            'accuracy': np.mean(accuracies) if accuracies else 0,
-            'std_accuracy': np.std(accuracies) if accuracies else 0,
-            'mean_cost': np.mean(costs) if costs else np.inf,
-            'debug_summary': debug_summary,
-            # ADD: ID/OOD metrics
-            'mean_id_accuracy': np.mean(id_accuracies) if id_accuracies else np.nan,
-            'mean_ood_accuracy': np.mean(ood_accuracies) if ood_accuracies else np.nan,
-            'num_id_conditions': len(id_accuracies),
-            'num_ood_conditions': len(ood_accuracies),
-            'std_id_accuracy': np.std(id_accuracies) if id_accuracies else np.nan,
-            'std_ood_accuracy': np.std(ood_accuracies) if ood_accuracies else np.nan,
-        }
-
-        # Print debug summary
-        print(f"    DEBUG PERFORMANCE SUMMARY:")
-        print(f"      Valid accuracies: {len(accuracies)}/{len(test_results)}")
-        print(f"      Mean accuracy: {summary['accuracy']:.4f}")
-        print(f"      ID conditions: {len(id_accuracies)}, OOD conditions: {len(ood_accuracies)}")
-        if id_accuracies:
-            print(f"      Mean ID accuracy: {summary['mean_id_accuracy']:.4f}")
-        if ood_accuracies:
-            print(f"      Mean OOD accuracy: {summary['mean_ood_accuracy']:.4f}")
-        print(f"      Target mismatches: {debug_summary['target_mismatches']}/{debug_summary['total_conditions']}")
-        print(f"      Pred distribution: {debug_summary['pred_class_distribution']}")
-        print(f"      Target distribution: {debug_summary['target_class_distribution']}")
-
-        if debug_summary['target_mismatches'] > 0:
-            print(f"      WARNING: {debug_summary['target_mismatches']} target mismatches detected!")
-            print(f"      This suggests target generation is inconsistent with dataset expectations")
-
-        return summary
-
-    def _summarize_performance_fixed(self, test_results):
-        """FIXED: Summarize performance using the same logic as the working tester"""
-
-        if not test_results:
-            return {}
-
-        # FIXED: Use the same filtering logic as interval_production_tester.py
-        # Don't filter by has_nan - only filter by actual NaN values in the metrics
-        accuracies = [r['performance']['accuracy'] for r in test_results
-                      if 'accuracy' in r['performance'] and not np.isnan(r['performance']['accuracy'])]
-
-        costs = [r['cost'] for r in test_results if not np.isnan(r['cost']) and np.isfinite(r['cost'])]
-
-        # Calculate summary with better error handling
-        summary = {
-            'num_conditions': len(test_results),
-            'num_valid': len(accuracies),
-            'nan_rate': (len(test_results) - len(accuracies)) / len(test_results) if test_results else 0,
-            'accuracy': np.mean(accuracies) if accuracies else 0,  # FIXED: Don't use nanmean on empty list
-            'std_accuracy': np.std(accuracies) if accuracies else 0,
-            'mean_cost': np.mean(costs) if costs else np.inf
-        }
-
-        # Debug output to see what's happening
-        print(f"    Summary: {len(accuracies)} valid accuracies out of {len(test_results)} conditions")
-        if accuracies:
-            print(f"    Mean accuracy: {summary['accuracy']:.4f}")
-        else:
-            print(f"    No valid accuracies found!")
-
-        return summary
-
-    def _calculate_time_bisection_performance(self, trial, outputs, condition):
-        """Calculate time bisection performance with target mismatch debugging"""
-
-        y = trial.y  # [T, B, O] - targets from task generation
-        T, B, O = outputs.shape
-
-        # Find response timing (existing logic)
-        targets_active = (np.abs(y).sum(axis=2) > 0)
-        has_target = targets_active.any(axis=0)
-        response_idx = targets_active.astype(float).argmax(axis=0)
-
-        if not has_target.any():
-            return {'accuracy': 0.0, 'debug_error': 'no_active_targets'}
-
-        # Get outputs and targets at response time
-        logits_b = np.transpose(outputs, (1, 0, 2))
-        targets_b = np.transpose(y, (1, 0, 2))
-        rows = np.arange(B)
-        chosen_logits = logits_b[rows, response_idx, :]
-        chosen_targets = targets_b[rows, response_idx, :]
-
-        # Calculate predictions
-        pred_classes = np.argmax(chosen_logits, axis=1)
-        target_classes = np.argmax(chosen_targets, axis=1)
 
         # DEBUG: Check for target generation mismatch
         duration = condition.get('duration', 0)
@@ -597,245 +373,81 @@ class TimeBisectionCardiacLibraryTester:
             'model_prediction': int(pred_classes[0]) if len(pred_classes) > 0 else -1
         }
 
-    def _generate_written_report(self, all_results):
-        """Generate comprehensive written report for cardiac library comparison"""
+    def _summarize_performance_with_debug(self, test_results):
+        """Summarize performance with debugging information AND ID/OOD breakdown"""
 
-        report_path = os.path.join(self.base_results_dir, "cardiac_library_comparison_report.txt")
+        if not test_results:
+            return {}
 
-        # Prepare data for analysis
-        performance_data = []
-        for result in all_results:
-            model_name = result['model_name']
-            for lib_name, lib_results in result['library_results'].items():
-                if lib_results and 'performance_summary' in lib_results:
-                    performance_data.append({
-                        'model': model_name,
-                        'library': lib_name,
-                        'accuracy': lib_results['performance_summary']['accuracy'],
-                        'std_accuracy': lib_results['performance_summary']['std_accuracy'],
-                        'mean_cost': lib_results['performance_summary']['mean_cost'],
-                        'nan_rate': lib_results['performance_summary']['nan_rate'],
-                        'num_conditions': lib_results['performance_summary']['num_conditions'],
-                        'num_valid': lib_results['performance_summary']['num_valid'],
-                        'mean_id_accuracy': lib_results['performance_summary'].get('mean_id_accuracy', float('nan')),
-                        'mean_ood_accuracy': lib_results['performance_summary'].get('mean_ood_accuracy', float('nan')),
-                    })
+        # Extract accuracies and debug info
+        accuracies = []
+        id_accuracies = []  # ADD: Track ID accuracies
+        ood_accuracies = []  # ADD: Track OOD accuracies
 
-        df = pd.DataFrame(performance_data)
+        debug_summary = {
+            'target_mismatches': 0,
+            'total_conditions': len(test_results),
+            'accuracy_distribution': [],
+            'pred_class_distribution': {'class_0': 0, 'class_1': 0},
+            'target_class_distribution': {'class_0': 0, 'class_1': 0}
+        }
 
-        with open(report_path, 'w') as f:
-            f.write("TIME BISECTION CARDIAC LIBRARY COMPARISON REPORT\n")
-            f.write("=" * 80 + "\n\n")
+        for r in test_results:
+            perf = r.get('performance', {})
+            debug = r.get('debug_info', {})
+            condition = r.get('condition', {})  # ADD: Get condition info
 
-            # Executive Summary
-            f.write("EXECUTIVE SUMMARY\n")
-            f.write("-" * 40 + "\n")
-            f.write(f"Models Tested: {len(all_results)}\n")
-            f.write(f"Cardiac Libraries: {len(self.cardiac_libraries)}\n")
-            f.write(f"Total Comparisons: {len(performance_data)}\n")
-            f.write(
-                f"Overall Mean Accuracy: {df['accuracy'].mean():.4f} ± {df['accuracy'].std():.4f}\n")
-            f.write(f"Performance Range: {df['accuracy'].min():.4f} - {df['accuracy'].max():.4f}\n")
+            if 'accuracy' in perf and not np.isnan(perf['accuracy']):
+                accuracy = perf['accuracy']
+                accuracies.append(accuracy)
+                debug_summary['accuracy_distribution'].append(accuracy)
 
-            # Best and worst performing combinations
-            best_combo = df.loc[df['accuracy'].idxmax()]
-            worst_combo = df.loc[df['accuracy'].idxmin()]
-            f.write(
-                f"Best Combination: {best_combo['model']} + {best_combo['library']} ({best_combo['accuracy']:.4f})\n")
-            f.write(
-                f"Worst Combination: {worst_combo['model']} + {worst_combo['library']} ({worst_combo['accuracy']:.4f})\n\n")
+                # ADD: Separate ID and OOD accuracies
+                is_ood = condition.get('is_ood', False)
+                if is_ood:
+                    ood_accuracies.append(accuracy)
+                else:
+                    id_accuracies.append(accuracy)
 
-            # Library Rankings
-            f.write("CARDIAC LIBRARY PERFORMANCE RANKINGS\n")
-            f.write("-" * 45 + "\n")
-            library_stats = df.groupby('library').agg({
-                'accuracy': ['mean', 'std', 'count'],
-                'mean_cost': 'mean',
-                'nan_rate': 'mean'
-            }).round(4)
+                # Check for target mismatches
+                if perf.get('target_mismatch', False):
+                    debug_summary['target_mismatches'] += 1
 
-            library_means = df.groupby('library')['accuracy'].mean().sort_values(ascending=False)
+        costs = [r['cost'] for r in test_results if not np.isnan(r['cost']) and np.isfinite(r['cost'])]
 
-            f.write("Ranked by Mean Accuracy (Higher = Better):\n\n")
-            for rank, (lib_name, mean_accuracy) in enumerate(library_means.items(), 1):
-                lib_data = df[df['library'] == lib_name]
-                std_accuracy = lib_data['accuracy'].std()
-                count = len(lib_data)
-                mean_cost = lib_data['mean_cost'].mean()
-                nan_rate = lib_data['nan_rate'].mean()
+        summary = {
+            'num_conditions': len(test_results),
+            'num_valid': len(accuracies),
+            'nan_rate': (len(test_results) - len(accuracies)) / len(test_results) if test_results else 0,
+            'accuracy': np.mean(accuracies) if accuracies else 0,
+            'std_accuracy': np.std(accuracies) if accuracies else 0,
+            'mean_cost': np.mean(costs) if costs else np.inf,
+            'debug_summary': debug_summary,
+            # ADD: ID/OOD metrics
+            'mean_id_accuracy': np.mean(id_accuracies) if id_accuracies else np.nan,
+            'mean_ood_accuracy': np.mean(ood_accuracies) if ood_accuracies else np.nan,
+            'num_id_conditions': len(id_accuracies),
+            'num_ood_conditions': len(ood_accuracies),
+            'std_id_accuracy': np.std(id_accuracies) if id_accuracies else np.nan,
+            'std_ood_accuracy': np.std(ood_accuracies) if ood_accuracies else np.nan,
+        }
 
-                f.write(f"{rank:2d}. {lib_name:15s} | Accuracy: {mean_accuracy:.4f} ± {std_accuracy:.4f} "
-                        f"| Cost: {mean_cost:.4f} | NaN Rate: {nan_rate:.1%} | n={count}\n")
+        # Print debug summary
+        print(f"    DEBUG PERFORMANCE SUMMARY:")
+        print(f"      Valid accuracies: {len(accuracies)}/{len(test_results)}")
+        print(f"      Mean accuracy: {summary['accuracy']:.4f}")
+        print(f"      ID conditions: {len(id_accuracies)}, OOD conditions: {len(ood_accuracies)}")
+        if id_accuracies:
+            print(f"      Mean ID accuracy: {summary['mean_id_accuracy']:.4f}")
+        if ood_accuracies:
+            print(f"      Mean OOD accuracy: {summary['mean_ood_accuracy']:.4f}")
+        print(f"      Target mismatches: {debug_summary['target_mismatches']}/{debug_summary['total_conditions']}")
 
-            f.write(f"\nLibrary Effect Size (std of library means): {library_means.std():.4f}\n")
+        if debug_summary['target_mismatches'] > 0:
+            print(f"      WARNING: {debug_summary['target_mismatches']} target mismatches detected!")
+            print(f"      This suggests target generation is inconsistent with dataset expectations")
 
-            # Determine if library choice matters significantly
-            library_cv = library_means.std() / library_means.mean()
-            f.write(f"Library Coefficient of Variation: {library_cv:.4f}")
-            if library_cv > 0.1:
-                f.write(" (HIGH - Library choice significantly affects performance)\n")
-            elif library_cv > 0.05:
-                f.write(" (MODERATE - Library choice moderately affects performance)\n")
-            else:
-                f.write(" (LOW - Library choice has minimal effect on performance)\n")
-            f.write("\n")
-
-            # Model Consistency Analysis
-            f.write("MODEL CONSISTENCY ANALYSIS\n")
-            f.write("-" * 35 + "\n")
-            model_stats = df.groupby('model').agg({
-                'accuracy': ['mean', 'std'],
-                'library': 'count'
-            }).round(4)
-
-            f.write("Models ranked by consistency (Lower Std = More Consistent across libraries):\n\n")
-            model_consistency = df.groupby('model')['accuracy'].std().sort_values()
-
-            for rank, (model_name, std_accuracy) in enumerate(model_consistency.items(), 1):
-                model_data = df[df['model'] == model_name]
-                mean_accuracy = model_data['accuracy'].mean()
-                count = len(model_data)
-                min_perf = model_data['accuracy'].min()
-                max_perf = model_data['accuracy'].max()
-
-                f.write(f"{rank:2d}. {model_name:20s} | Mean: {mean_accuracy:.4f} | Std: {std_accuracy:.4f} "
-                        f"| Range: [{min_perf:.4f}, {max_perf:.4f}] | n={count}\n")
-
-            f.write("\n")
-
-            # Detailed Library Analysis
-            f.write("DETAILED LIBRARY ANALYSIS\n")
-            f.write("-" * 30 + "\n")
-
-            for lib_name in sorted(self.cardiac_libraries.keys()):
-                lib_data = df[df['library'] == lib_name]
-                if len(lib_data) == 0:
-                    continue
-
-                f.write(f"\n{lib_name.upper()}:\n")
-                f.write(f"  Models Tested: {len(lib_data)}\n")
-                f.write(
-                    f"  Mean Accuracy: {lib_data['accuracy'].mean():.4f} ± {lib_data['accuracy'].std():.4f}\n")
-                f.write(
-                    f"  Accuracy Range: [{lib_data['accuracy'].min():.4f}, {lib_data['accuracy'].max():.4f}]\n")
-                f.write(f"  Mean Cost: {lib_data['mean_cost'].mean():.4f}\n")
-                f.write(f"  Average NaN Rate: {lib_data['nan_rate'].mean():.1%}\n")
-                # Add ID/OOD accuracy reporting
-                if 'mean_id_accuracy' in lib_data:
-                    f.write(f"  Mean In-Distribution Accuracy: {lib_data['mean_id_accuracy'].mean():.4f}\n")
-                if 'mean_ood_accuracy' in lib_data:
-                    f.write(f"  Mean Out-of-Distribution Accuracy: {lib_data['mean_ood_accuracy'].mean():.4f}\n")
-
-                # Best and worst models for this library
-                best_model = lib_data.loc[lib_data['accuracy'].idxmax()]
-                worst_model = lib_data.loc[lib_data['accuracy'].idxmin()]
-                f.write(f"  Best Model: {best_model['model']} ({best_model['accuracy']:.4f})\n")
-                f.write(f"  Worst Model: {worst_model['model']} ({worst_model['accuracy']:.4f})\n")
-
-            # Detailed Model Analysis
-            f.write("\n\nDETAILED MODEL ANALYSIS\n")
-            f.write("-" * 28 + "\n")
-
-            for model_name in sorted(df['model'].unique()):
-                model_data = df[df['model'] == model_name]
-
-                f.write(f"\n{model_name.upper()}:\n")
-                f.write(f"  Libraries Tested: {len(model_data)}\n")
-                f.write(
-                    f"  Mean Accuracy: {model_data['accuracy'].mean():.4f} ± {model_data['accuracy'].std():.4f}\n")
-                f.write(
-                    f"  Accuracy Range: [{model_data['accuracy'].min():.4f}, {model_data['accuracy'].max():.4f}]\n")
-                f.write(f"  Average NaN Rate: {model_data['nan_rate'].mean():.1%}\n")
-
-                # Best and worst libraries for this model
-                best_library = model_data.loc[model_data['accuracy'].idxmax()]
-                worst_library = model_data.loc[model_data['accuracy'].idxmin()]
-                f.write(f"  Best Library: {best_library['library']} ({best_library['accuracy']:.4f})\n")
-                f.write(f"  Worst Library: {worst_library['library']} ({worst_library['accuracy']:.4f})\n")
-                f.write(f"  Library Sensitivity: {model_data['accuracy'].std():.4f} (lower = more robust)\n")
-
-            # Statistical Analysis
-            f.write("\n\nSTATISTICAL ANALYSIS\n")
-            f.write("-" * 25 + "\n")
-
-            # ANOVA-like analysis
-            total_variance = df['accuracy'].var()
-            between_library_variance = df.groupby('library')['accuracy'].mean().var()
-            between_model_variance = df.groupby('model')['accuracy'].mean().var()
-
-            f.write(f"Total Performance Variance: {total_variance:.6f}\n")
-            f.write(
-                f"Between-Library Variance: {between_library_variance:.6f} ({between_library_variance / total_variance:.1%} of total)\n")
-            f.write(
-                f"Between-Model Variance: {between_model_variance:.6f} ({between_model_variance / total_variance:.1%} of total)\n")
-
-            # Correlation analysis
-            f.write(f"\nPerformance Correlations:\n")
-            f.write(f"  Accuracy vs Cost: {df['accuracy'].corr(df['mean_cost']):.3f}\n")
-            f.write(f"  Accuracy vs NaN Rate: {df['accuracy'].corr(df['nan_rate']):.3f}\n")
-
-            # Top and bottom performing combinations
-            f.write(f"\n\nTOP 10 MODEL-LIBRARY COMBINATIONS\n")
-            f.write("-" * 40 + "\n")
-            top_combinations = df.nlargest(10, 'accuracy')
-            for i, row in top_combinations.iterrows():
-                f.write(
-                    f"{row.name + 1:2d}. {row['model']:20s} + {row['library']:15s} | {row['accuracy']:.4f}\n")
-
-            f.write(f"\n\nBOTTOM 10 MODEL-LIBRARY COMBINATIONS\n")
-            f.write("-" * 42 + "\n")
-            bottom_combinations = df.nsmallest(10, 'accuracy')
-            for i, row in bottom_combinations.iterrows():
-                f.write(
-                    f"{len(df) - row.name:2d}. {row['model']:20s} + {row['library']:15s} | {row['accuracy']:.4f}\n")
-
-            # Recommendations
-            f.write(f"\n\nRECOMMENDATIONS\n")
-            f.write("-" * 20 + "\n")
-
-            best_overall_library = library_means.index[0]
-            most_consistent_library = df.groupby('library')['accuracy'].std().idxmin()
-            most_robust_model = model_consistency.index[0]
-            best_overall_model = df.groupby('model')['accuracy'].mean().idxmax()
-
-            f.write(f"1. BEST OVERALL LIBRARY: {best_overall_library}\n")
-            f.write(f"   Highest mean performance across all models\n\n")
-
-            f.write(f"2. MOST CONSISTENT LIBRARY: {most_consistent_library}\n")
-            f.write(f"   Lowest performance variance across models\n\n")
-
-            f.write(f"3. MOST ROBUST MODEL: {most_robust_model}\n")
-            f.write(f"   Lowest performance variance across libraries\n\n")
-
-            f.write(f"4. BEST PERFORMING MODEL: {best_overall_model}\n")
-            f.write(f"   Highest mean performance across all libraries\n\n")
-
-            if library_cv > 0.1:
-                f.write(f"5. LIBRARY SELECTION IS CRITICAL:\n")
-                f.write(f"   High coefficient of variation ({library_cv:.3f}) indicates\n")
-                f.write(f"   cardiac library choice significantly impacts performance.\n")
-                f.write(f"   Recommend using {best_overall_library} for optimal results.\n\n")
-            else:
-                f.write(f"5. LIBRARY SELECTION IS NOT CRITICAL:\n")
-                f.write(f"   Low coefficient of variation ({library_cv:.3f}) indicates\n")
-                f.write(f"   models are robust to cardiac library choice.\n\n")
-
-            # Technical Notes
-            f.write(f"TECHNICAL NOTES\n")
-            f.write("-" * 20 + "\n")
-            f.write(f"- Accuracy: 1.0 = perfect classification, 0.5 = chance level\n")
-            f.write(f"- Training range: 1000-2000ms durations\n")
-            f.write(f"- Bisection point: 600ms (short < 600ms < long)\n")
-            f.write(f"- NaN rate: Proportion of trials producing invalid outputs\n")
-            f.write(f"- Library CV: Coefficient of variation of library means\n")
-            f.write(f"- Model sensitivity: Standard deviation across libraries\n")
-            f.write(
-                f"- Total conditions tested per model-library pair: {df['num_conditions'].iloc[0] if len(df) > 0 else 'N/A'}\n")
-
-            f.write(f"\nReport generated: {pd.Timestamp.now()}\n")
-
-        print(f"Comprehensive written report saved to: {report_path}")
-        return report_path
+        return summary
 
     def test_model_across_libraries(self, model_dir, test_conditions=None):
         """Test a single model across all available cardiac libraries"""
@@ -913,8 +525,8 @@ class TimeBisectionCardiacLibraryTester:
         # Get test conditions
         test_conditions = self.get_test_conditions(num_conditions, use_dataset, include_ood)
 
-        # Filter for piezo models only
-        piezo_models = []
+        # Filter for insula models only (not baseline models)
+        insula_models = []
         for model_info in model_directories:
             if len(model_info) == 3:
                 model_dir, rule_name, run_name = model_info
@@ -923,14 +535,14 @@ class TimeBisectionCardiacLibraryTester:
                 run_name = os.path.basename(model_dir)
 
             analysis = tools.analyze_model_directory(model_dir)
-            if analysis['use_piezo']:
-                piezo_models.append((model_dir, rule_name, run_name))
+            if analysis['use_insula']:
+                insula_models.append((model_dir, rule_name, run_name))
 
-        print(f"Found {len(piezo_models)} piezo models to test")
+        print(f"Found {len(insula_models)} insula models to test")
 
         all_results = []
 
-        for model_dir, rule_name, run_name in piezo_models:
+        for model_dir, rule_name, run_name in insula_models:
             print(f"\n{'=' * 60}")
             print(f"Testing model: {run_name}")
             print(f"{'=' * 60}")
@@ -1046,7 +658,7 @@ class TimeBisectionCardiacLibraryTester:
 
         # Create comparison plots
         fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-        fig.suptitle('Time Bisection: Cardiac Library Comparison', fontsize=16)
+        fig.suptitle('Time Bisection Insula Models: Cardiac Library Comparison', fontsize=16)
 
         # Plot 1: Library performance boxplot
         ax1 = axes[0, 0]
@@ -1103,6 +715,87 @@ class TimeBisectionCardiacLibraryTester:
 
         print(f"Comparison plots saved to: {plot_path}")
 
+    def _generate_written_report(self, all_results):
+        """Generate comprehensive written report for cardiac library comparison"""
+
+        report_path = os.path.join(self.base_results_dir, "cardiac_library_comparison_report.txt")
+
+        # Prepare data for analysis
+        performance_data = []
+        for result in all_results:
+            model_name = result['model_name']
+            for lib_name, lib_results in result['library_results'].items():
+                if lib_results and 'performance_summary' in lib_results:
+                    performance_data.append({
+                        'model': model_name,
+                        'library': lib_name,
+                        'accuracy': lib_results['performance_summary']['accuracy'],
+                        'std_accuracy': lib_results['performance_summary']['std_accuracy'],
+                        'mean_cost': lib_results['performance_summary']['mean_cost'],
+                        'nan_rate': lib_results['performance_summary']['nan_rate'],
+                        'num_conditions': lib_results['performance_summary']['num_conditions'],
+                        'num_valid': lib_results['performance_summary']['num_valid'],
+                        'mean_id_accuracy': lib_results['performance_summary'].get('mean_id_accuracy', float('nan')),
+                        'mean_ood_accuracy': lib_results['performance_summary'].get('mean_ood_accuracy', float('nan')),
+                    })
+
+        df = pd.DataFrame(performance_data)
+
+        with open(report_path, 'w') as f:
+            f.write("TIME BISECTION INSULA MODELS CARDIAC LIBRARY COMPARISON REPORT\n")
+            f.write("=" * 80 + "\n\n")
+
+            # Executive Summary
+            f.write("EXECUTIVE SUMMARY\n")
+            f.write("-" * 40 + "\n")
+            f.write(f"Insula Models Tested: {len(all_results)}\n")
+            f.write(f"Cardiac Libraries: {len(self.cardiac_libraries)}\n")
+            f.write(f"Total Comparisons: {len(performance_data)}\n")
+            f.write(
+                f"Overall Mean Accuracy: {df['accuracy'].mean():.4f} ± {df['accuracy'].std():.4f}\n")
+            f.write(f"Performance Range: {df['accuracy'].min():.4f} - {df['accuracy'].max():.4f}\n")
+
+            # Best and worst performing combinations
+            best_combo = df.loc[df['accuracy'].idxmax()]
+            worst_combo = df.loc[df['accuracy'].idxmin()]
+            f.write(
+                f"Best Combination: {best_combo['model']} + {best_combo['library']} ({best_combo['accuracy']:.4f})\n")
+            f.write(
+                f"Worst Combination: {worst_combo['model']} + {worst_combo['library']} ({worst_combo['accuracy']:.4f})\n\n")
+
+            # Library Rankings
+            f.write("CARDIAC LIBRARY PERFORMANCE RANKINGS\n")
+            f.write("-" * 45 + "\n")
+            library_means = df.groupby('library')['accuracy'].mean().sort_values(ascending=False)
+
+            f.write("Ranked by Mean Accuracy (Higher = Better):\n\n")
+            for rank, (lib_name, mean_accuracy) in enumerate(library_means.items(), 1):
+                lib_data = df[df['library'] == lib_name]
+                std_accuracy = lib_data['accuracy'].std()
+                count = len(lib_data)
+                mean_cost = lib_data['mean_cost'].mean()
+                nan_rate = lib_data['nan_rate'].mean()
+
+                f.write(f"{rank:2d}. {lib_name:15s} | Accuracy: {mean_accuracy:.4f} ± {std_accuracy:.4f} "
+                        f"| Cost: {mean_cost:.4f} | NaN Rate: {nan_rate:.1%} | n={count}\n")
+
+            f.write(f"\nLibrary Effect Size (std of library means): {library_means.std():.4f}\n")
+
+            # Determine if library choice matters significantly
+            library_cv = library_means.std() / library_means.mean()
+            f.write(f"Library Coefficient of Variation: {library_cv:.4f}")
+            if library_cv > 0.1:
+                f.write(" (HIGH - Library choice significantly affects performance)\n")
+            elif library_cv > 0.05:
+                f.write(" (MODERATE - Library choice moderately affects performance)\n")
+            else:
+                f.write(" (LOW - Library choice has minimal effect on performance)\n")
+
+            f.write(f"\nReport generated: {pd.Timestamp.now()}\n")
+
+        print(f"Comprehensive written report saved to: {report_path}")
+        return report_path
+
     def _make_json_serializable(self, obj):
         """Convert numpy types to Python types for JSON serialization"""
         if isinstance(obj, np.ndarray):
@@ -1118,16 +811,15 @@ class TimeBisectionCardiacLibraryTester:
         else:
             return obj
 
-    def discover_bisection_models(self):
-        """Discover trained time bisection models"""
+    def discover_insula_bisection_models(self):
+        """Discover trained time bisection insula models"""
         model_dirs = []
 
         possible_base_dirs = [
-            'enhanced_piezo_time_bisection_results',  # FIXED: Added the correct directory name
-            'enhanced_piezo_bisection_results',
-            'bisection_results',
-            'time_bisection_results',
-            'model/time_bisection',
+            'enhanced_piezo_time_bisection_results',  # Main directory for insula bisection models
+            'enhanced_insula_time_bisection_results',  # Alternative naming
+            'insula_time_bisection_results',
+            'time_bisection_insula_results',
         ]
 
         for base_dir in possible_base_dirs:
@@ -1143,23 +835,44 @@ class TimeBisectionCardiacLibraryTester:
             for item in os.listdir(base_dir):
                 item_path = os.path.join(base_dir, item)
                 if os.path.isdir(item_path):
-                    if 'run_' in item or item.startswith('w2_') or item.isdigit() or 'piezo' in item:
-                        best_model_path = self._find_best_model_checkpoint(item_path)
-                        if best_model_path:
-                            model_dirs.append((best_model_path, rule_name, item))
-                    elif self._has_valid_model(item_path):
-                        model_dirs.append((item_path, rule_name, item))
+                    if ('insula_run_' in item or 'no_piezo_run_' in item or 
+                        'no_insula' in item or 'baseline_run_' in item):
+                        # Store the base directory, not the specific checkpoint
+                        # Verify this is actually an insula model by checking hp.json
+                        if self._is_insula_model(item_path):
+                            model_dirs.append((item_path, rule_name, item))
+                            print(f"  Found model: {item}")
+                        else:
+                            print(f"  Skipped non-insula model: {item}")
         except PermissionError:
             print(f"Permission denied accessing {base_dir}")
         except Exception as e:
             print(f"Error searching {base_dir}: {e}")
 
-    def _find_best_model_checkpoint(self, base_model_dir):
-        """Find the best model checkpoint in a run directory"""
+    def _is_insula_model(self, model_path):
+        """Check if a model is an insula model (not baseline)"""
+        hp_path = os.path.join(model_path, 'hp.json')
+        try:
+            with open(hp_path, 'r') as f:
+                hp = json.load(f)
+            
+            use_insula = hp.get('use_insula', False)
+            
+            # Only include insula models (exclude baseline models)
+            return use_insula
+                
+        except Exception as e:
+            print(f"  Warning: Could not read hp.json from {model_path}: {e}")
+            return False
+
+    def _find_best_model_checkpoint(self, base_model_dir, use_best_timing_error=True):
+        """Find the best model checkpoint in a run directory based on timing error"""
+        # Priority order: finalResult > best timing error checkpoint > highest numbered checkpoint > main directory
         final_path = os.path.join(base_model_dir, 'finalResult')
         if os.path.exists(final_path) and self._has_valid_model(final_path):
             return final_path
 
+        # Check for numbered checkpoints
         numbered_checkpoints = []
         if os.path.exists(base_model_dir):
             for item in os.listdir(base_model_dir):
@@ -1168,14 +881,70 @@ class TimeBisectionCardiacLibraryTester:
                     if os.path.isdir(checkpoint_path) and self._has_valid_model(checkpoint_path):
                         numbered_checkpoints.append((int(item), checkpoint_path))
 
+        if numbered_checkpoints and use_best_timing_error:
+            # Try to find the best checkpoint based on timing error from individual checkpoint logs
+            best_checkpoint = self._find_best_timing_error_checkpoint(base_model_dir, numbered_checkpoints)
+            if best_checkpoint:
+                return best_checkpoint
+
+        # Fallback: Get highest numbered checkpoint
         if numbered_checkpoints:
-            numbered_checkpoints.sort(reverse=True)
+            numbered_checkpoints.sort(reverse=True)  # Highest number first
             return numbered_checkpoints[0][1]
 
+        # Check main directory as fallback
         if self._has_valid_model(base_model_dir):
             return base_model_dir
 
         return None
+
+    def _find_best_timing_error_checkpoint(self, base_model_dir, numbered_checkpoints):
+        """Find checkpoint with best timing error performance for time bisection models"""
+        
+        best_checkpoint = None
+        best_metric = float('inf')  # Lower is better for choice error
+        
+        print(f"    Searching for best checkpoint based on choice error...")
+        
+        for checkpoint_num, checkpoint_path in numbered_checkpoints:
+            log_path = os.path.join(checkpoint_path, 'log.json')
+            
+            if not os.path.exists(log_path):
+                continue
+                
+            try:
+                with open(log_path, 'r') as f:
+                    checkpoint_log = json.load(f)
+                
+                # Look for appropriate metric for time bisection tasks
+                timing_error = None
+                if 'mean_choice_error' in checkpoint_log:
+                    # For bisection tasks, use choice error (lower is better)
+                    timing_error = checkpoint_log['mean_choice_error']
+                elif 'cost' in checkpoint_log:
+                    # Fallback to cost (lower is better)
+                    timing_error = checkpoint_log['cost']
+                elif 'success_action_prob' in checkpoint_log:
+                    # Convert success probability to error (lower is better)
+                    timing_error = 1.0 - checkpoint_log['success_action_prob']
+                    
+                if timing_error is not None and timing_error < best_metric:
+                    best_metric = timing_error
+                    best_checkpoint = checkpoint_path
+                    print(f"      Checkpoint {checkpoint_num}: choice_error = {timing_error:.6f} (best so far)")
+                elif timing_error is not None:
+                    print(f"      Checkpoint {checkpoint_num}: choice_error = {timing_error:.6f}")
+                    
+            except Exception as e:
+                print(f"    Warning: Could not read log from {checkpoint_path}: {e}")
+                continue
+        
+        if best_checkpoint:
+            print(f"    Selected checkpoint with best choice error: {best_metric:.6f}")
+            return best_checkpoint
+        else:
+            print(f"    Warning: No timing error data found in checkpoint logs")
+            return None
 
     def _has_valid_model(self, model_path):
         """Check if a directory contains a valid model"""
@@ -1185,19 +954,19 @@ class TimeBisectionCardiacLibraryTester:
 
 
 def main():
-    """Run the cardiac library comparison test"""
+    """Run the cardiac library comparison test for insula models"""
 
     # Initialize the tester
-    tester = TimeBisectionCardiacLibraryTester()
+    tester = TimeBisectionInsulaLibraryTester()
 
-    # Discover time bisection models
-    model_directories = tester.discover_bisection_models()
+    # Discover time bisection insula models
+    model_directories = tester.discover_insula_bisection_models()
 
     if not model_directories:
-        print("No time bisection models found!")
+        print("No time bisection insula models found!")
         return
 
-    print(f"Found {len(model_directories)} time bisection models")
+    print(f"Found {len(model_directories)} time bisection insula models")
 
     # Run the comparison across libraries
     results = tester.test_multiple_models_across_libraries(model_directories)

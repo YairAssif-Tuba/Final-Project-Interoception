@@ -1,18 +1,18 @@
 """
-Enhanced Piezo vs Non-Piezo Network Comparison Script - INTERVAL PRODUCTION VERSION
+Enhanced Piezo vs Non-Piezo Network Comparison Script - TIME BISECTION VERSION
 ===============================================================================
 
-This script is based on enhanced_piezo_comparison.py but modified for the interval production task.
-All original functionality is preserved, but the task is changed from interval_comparison to interval_production.
+This script is based on enhanced_piezo_comparison.py but modified for the time bisection task.
+All original functionality is preserved, but the task is changed from interval_comparison to time_bisection.
 
 CHANGES FROM ENHANCED_PIEZO_COMPARISON.PY:
-+ Task changed to interval_production
-+ Modified task generation for production intervals
-+ Updated performance metrics for production task
++ Task changed to time_bisection
++ Modified task generation for bisection intervals
++ Updated performance metrics for bisection task
 + All connectivity tracking and convergence analysis preserved
 
 Usage:
-    python enhanced_piezo_production.py [--full-training] [--time-delay] [--output-dir OUTPUT_DIR]
+    python enhanced_piezo_time_bisection.py [--full-training] [--time-delay] [--output-dir OUTPUT_DIR]
 """
 
 import os
@@ -26,7 +26,7 @@ from collections import defaultdict
 import pickle
 from scipy import stats
 # Add project imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
 import default
 import train
 import network
@@ -55,20 +55,28 @@ class DatasetLoader:
         if self.total_samples_used % 1000 == 0:
             print(f"DATASET VERIFICATION: Used {self.total_samples_used} samples")
         return params
-class EnhancedPiezoProductionAnalyzer:
-    """Enhanced analyzer - IDENTICAL to original with connectivity & convergence tracking added."""
+# --- Color scheme used everywhere ---
+COLORS = {
+    "piezo": "#d62728",      # RED
+    "no_piezo": "#1f77b4",   # BLUE
+}
 
-    def __init__(self, output_dir="enhanced_piezo_production_results", use_time_delay=False, num_runs=10):
+
+class EnhancedPiezoTimeBisectionAnalyzer:
+    """Enhanced analyzer for time bisection task - IDENTICAL to original with connectivity & convergence tracking added."""
+
+    def __init__(self, output_dir="enhanced_piezo_time_bisection_results", use_time_delay=False, num_runs=10):
         self.output_dir = output_dir
         self.use_time_delay = use_time_delay
         self.num_runs = num_runs
         tools.mkdir_p(self.output_dir)
 
-        # IDENTICAL enhanced intervals from original (adapted for production task)
-        self.enhanced_intervals = {
-            'min_interval': 1200,  # 1.2 seconds minimum
-            'max_interval': 2400,  # 2.4 seconds maximum
-            'delay_interval': 1000  # 1 second delay
+        # Task-specific parameters for time bisection
+        self.bisection_parameters = {
+            'short_standard': 1000,  # Short standard duration (ms)
+            'long_standard': 2000,   # Long standard duration (ms)
+            'std': 40,              # Standard deviation for Gaussian sampling
+            'response_duration': 300  # Response window duration (ms)
         }
 
         # NEW: Performance thresholds for convergence analysis
@@ -79,12 +87,12 @@ class EnhancedPiezoProductionAnalyzer:
             'valid_response_95': 0.95
         }
 
-        print(f"Enhanced Piezo Production Analyzer")
+        print(f"Enhanced Piezo Time Bisection Analyzer")
         print(f"Output directory: {self.output_dir}")
         print(f"Training runs per network type: {self.num_runs}")
-        print(f"Enhanced intervals: {self.enhanced_intervals['min_interval']}-{self.enhanced_intervals['max_interval']}ms")
+        print(f"Bisection standards: {self.bisection_parameters['short_standard']}-{self.bisection_parameters['long_standard']}ms")
         print(f"Time delay: {'ENABLED' if use_time_delay else 'DISABLED'}")
-        #dataset_path = "enhanced_interval_datasets/interval_production_dataset.json"
+        #dataset_path = "enhanced_interval_datasets/time_bisection_dataset.json"
         #if os.path.exists(dataset_path):
             #self.dataset_loader = DatasetLoader(dataset_path)
             #self.using_dataset = True
@@ -93,14 +101,12 @@ class EnhancedPiezoProductionAnalyzer:
             #self.using_dataset = False
 
     def create_enhanced_hp(self, use_piezo=False, use_insula=False):
-        """MODIFIED: Use interval_production instead of interval_comparison, support insula"""
-        hp = default.get_default_hp('interval_production', use_piezo=use_piezo, use_insula=use_insula)
-
-        # Enhanced intervals to contain full heartbeat cycles
-        hp['enhanced_intervals'] = self.enhanced_intervals
+        """MODIFIED: Use time_bisection instead of interval_comparison, support insula"""
+        hp = default.get_default_hp('time_bisection', use_piezo=use_piezo, use_insula=use_insula)
 
         # Piezo-specific enhancements
         if use_piezo:
+            hp['use_piezo'] = True
             hp['heartbeat_slice_size'] = 20
             hp['piezo_connection_fraction'] = 0.15
             hp['use_temporal_delay'] = self.use_time_delay
@@ -108,114 +114,34 @@ class EnhancedPiezoProductionAnalyzer:
 
         # Insula-specific enhancements
         if use_insula:
+            # Explicitly enable insula interface
+            hp['use_insula'] = True
             # The insula configuration is already set up in default.py
-            # Gate initialization is now 1.0 by default for optimal gradient flow
-            pass
+            # Gate initialization is now 0.2 by default for optimal gradient flow
+
+        # Bisection-specific enhancements
+        hp['bisection_parameters'] = self.bisection_parameters
 
         return hp
 
     def modify_task_generation(self):
-        """MODIFIED: Use interval_production task generation"""
         import task
+        original_time_bisection = task._time_bisection
 
-        # Store original function
-        original_interval_production = task._interval_production
-
-        def enhanced_interval_production(config, mode, **kwargs):
-            """Enhanced interval production with larger intervals."""
-            # Call original function first
-            trial = original_interval_production(config, mode, **kwargs)
-            dt = config['dt']
-            batch_size = trial.batch_size
-            if self.dataset_loader is not None:
+        def enhanced_time_bisection(config, mode, **kwargs):
+            if self.dataset_loader is not None and mode in ['random', 'random_validate']:
+                batch_size = kwargs.get('batch_size', 8)
                 params = self.dataset_loader.get_next_params(batch_size)
 
-                trial.prod_interval = np.array([p['prod_interval'] / dt for p in params]).astype(int)
-                trial.dly_interval = np.array([p['dly_interval'] / dt for p in params]).astype(int)
+                kwargs['_preset_durations'] = [p['duration'] for p in params]
+                kwargs['short_standard'] = params[0]['short_standard']
+                kwargs['long_standard'] = params[0]['long_standard']
+                kwargs['std'] = params[0]['std']
 
-            # If we have enhanced intervals config, override the intervals
-            elif 'enhanced_intervals' in config:
-                dt = config['dt']
-                batch_size = trial.batch_size
-                rng = config['rng']
+            return original_time_bisection(config, mode, **kwargs)
 
-                # Generate enhanced intervals
-                if mode in ['random', 'random_validate']:
-                    min_int = config['enhanced_intervals']['min_interval']
-                    max_int = config['enhanced_intervals']['max_interval']
-                    delay_int = config['enhanced_intervals']['delay_interval']
-
-                    # Override with enhanced intervals for production task
-                    trial.prod_interval = (rng.uniform(min_int, max_int, batch_size) / dt).astype(int)
-                    trial.dly_interval = (rng.uniform(delay_int, delay_int + 400, batch_size) / dt).astype(int)
-
-                    # Regenerate the trial with new intervals
-                    trial = self._regenerate_trial_with_intervals(trial, config)
-
-            return trial
-
-        # Patch the function
-        task._interval_production = enhanced_interval_production
-        task.rule_mapping['interval_production'] = enhanced_interval_production
-
-        print("Task generation modified for enhanced production intervals")
-
-    def _regenerate_trial_with_intervals(self, trial, config):
-        """MODIFIED: Regenerate trial for interval production task"""
-        dt = config['dt']
-        batch_size = trial.batch_size
-        rng = config['rng']
-
-        # Get the new intervals
-        prod_interval = trial.prod_interval
-        dly_interval = trial.dly_interval
-
-        pulse_duration = int(60 / dt)
-        response_duration = int(300 / dt)
-
-        # Recalculate timings for production task
-        stim1_on = (rng.uniform(100, 100, batch_size) / dt).astype(int)
-        stim1_off = stim1_on + pulse_duration
-        stim2_on = stim1_off + prod_interval
-        stim2_off = stim2_on + pulse_duration
-        control_on = stim2_off + dly_interval
-        control_off = control_on + pulse_duration
-        response_on = control_off + prod_interval
-        response_off = response_on + response_duration
-        xtdim = response_off
-
-        # Create new trial with correct dimensions
-        from task import Trial
-        new_trial = Trial(config, xtdim.max(), batch_size)
-
-        # Add inputs and outputs for production task
-        new_trial.add('input', 0, ons=stim1_on, offs=stim1_off, strengths=new_trial.expand(1.))
-        new_trial.add('input', 0, ons=stim2_on, offs=stim2_off, strengths=new_trial.expand(1.))
-        new_trial.add('input', 1, ons=control_on, offs=control_off, strengths=new_trial.expand(1.))
-
-        # Output target for production task
-        new_trial.add('out', 0, ons=response_on, offs=response_off, strengths=new_trial.expand(1.))
-        new_trial.add('cost_mask', 0, ons=stim1_on, offs=response_off, strengths=new_trial.expand(1.))
-
-        # Set epochs for production task
-        new_trial.epochs = {
-            'fix': (None, stim1_on),
-            'stim1': (stim1_on, stim1_off),
-            'interval': (stim1_off, stim2_on),
-            'stim2': (stim2_on, stim2_off),
-            'delay': (stim2_off, control_on),
-            'go_cue': (control_on, control_off),
-            'go': (control_off, response_on),
-            'response': (response_on, response_off)
-        }
-
-        # Copy over the intervals
-        new_trial.prod_interval = prod_interval
-        new_trial.dly_interval = dly_interval
-        new_trial.seq_len = xtdim
-        new_trial.max_seq_len = xtdim.max()
-
-        return new_trial
+        task._time_bisection = enhanced_time_bisection
+        task.rule_mapping['time_bisection'] = enhanced_time_bisection
 
     # NEW ENHANCEMENT 1: Connectivity analysis methods (IDENTICAL to original)
     def extract_connectivity_statistics(self, model, phase='initial'):
@@ -372,15 +298,13 @@ class EnhancedPiezoProductionAnalyzer:
 
     def train_networks(self, max_samples=5e5):
         """IDENTICAL to original - train both piezo and non-piezo networks with enhanced tracking."""
-        print(f"\nEnhanced Network Training (Interval Production)")
+        print(f"\nEnhanced Network Training (Time Bisection)")
         print(f"   Max samples per run: {max_samples:,.0f}")
         print(f"   Runs per network type: {self.num_runs}")
         print(f"   Total training runs: {self.num_runs * 2}")
         print("=" * 60)
 
-        # Modify task generation for enhanced intervals
-        print("DEBUG: Using built-in task dataset loading (no patching required)")
-
+        # Modify task generation for enhanced parameters
         #self.modify_task_generation()
 
         results = {
@@ -398,46 +322,7 @@ class EnhancedPiezoProductionAnalyzer:
             }
         }
 
-        # Train non-piezo networks
-        print(f"\nTraining {self.num_runs} Non-Piezo Networks")
-        print("-" * 40)
-
-        for run_idx in range(self.num_runs):
-            print(f"\nNon-Piezo Run {run_idx + 1}/{self.num_runs}")
-
-            model_dir = os.path.join(self.output_dir, f"no_piezo_run_{run_idx + 1}")
-            start_time = time.time()
-
-            stat, trainer = self._train_with_enhanced_tracking(
-                model_dir=model_dir,
-                use_piezo=False,
-                max_samples=max_samples,
-                display_step=1000,
-                run_idx=run_idx + 1
-            )
-
-            training_time = time.time() - start_time
-            results['no_piezo']['total_training_time'] += training_time
-
-            run_result = {
-                'run_idx': run_idx + 1,
-                'model_dir': model_dir,
-                'trainer': trainer,
-                'status': stat,
-                'training_time': training_time,
-                'hp': trainer.hp if trainer else None
-            }
-
-            results['no_piezo']['runs'].append(run_result)
-
-            if stat == 'OK':
-                results['no_piezo']['successful_runs'] += 1
-                print(f"   Run {run_idx + 1} successful ({training_time:.1f}s)")
-            else:
-                results['no_piezo']['failed_runs'] += 1
-                print(f"   Run {run_idx + 1} failed ({training_time:.1f}s)")
-
-        # Train piezo networks
+        # Train piezo networks FIRST
         print(f"\nTraining {self.num_runs} Piezo Networks (Time Delay: {self.use_time_delay})")
         print("-" * 40)
 
@@ -476,6 +361,45 @@ class EnhancedPiezoProductionAnalyzer:
                 results['piezo']['failed_runs'] += 1
                 print(f"   Run {run_idx + 1} failed ({training_time:.1f}s)")
 
+        # Train non-piezo networks SECOND
+        print(f"\nTraining {self.num_runs} Non-Piezo Networks")
+        print("-" * 40)
+
+        for run_idx in range(self.num_runs):
+            print(f"\nNon-Piezo Run {run_idx + 1}/{self.num_runs}")
+
+            model_dir = os.path.join(self.output_dir, f"no_piezo_run_{run_idx + 1}")
+            start_time = time.time()
+
+            stat, trainer = self._train_with_enhanced_tracking(
+                model_dir=model_dir,
+                use_piezo=False,
+                max_samples=max_samples,
+                display_step=1000,
+                run_idx=run_idx + 1
+            )
+
+            training_time = time.time() - start_time
+            results['no_piezo']['total_training_time'] += training_time
+
+            run_result = {
+                'run_idx': run_idx + 1,
+                'model_dir': model_dir,
+                'trainer': trainer,
+                'status': stat,
+                'training_time': training_time,
+                'hp': trainer.hp if trainer else None
+            }
+
+            results['no_piezo']['runs'].append(run_result)
+
+            if stat == 'OK':
+                results['no_piezo']['successful_runs'] += 1
+                print(f"   Run {run_idx + 1} successful ({training_time:.1f}s)")
+            else:
+                results['no_piezo']['failed_runs'] += 1
+                print(f"   Run {run_idx + 1} failed ({training_time:.1f}s)")
+
         # Save training summary
         self._save_multiple_runs_summary(results)
 
@@ -489,7 +413,7 @@ class EnhancedPiezoProductionAnalyzer:
 
     def train_insula_networks(self, max_samples=5e5):
         """Train insula networks with enhanced tracking (similar to train_networks but for insula only)."""
-        print(f"\nEnhanced Insula Network Training (Interval Production)")
+        print(f"\nEnhanced Insula Network Training (Time Bisection)")
         print(f"   Max samples per run: {max_samples:,.0f}")
         print(f"   Runs per network type: {self.num_runs}")
         print(f"   Total training runs: {self.num_runs}")
@@ -555,7 +479,7 @@ class EnhancedPiezoProductionAnalyzer:
         return results
 
     def _train_with_enhanced_tracking(self, model_dir, use_piezo, max_samples, display_step, run_idx, use_insula=False):
-        """MODIFIED: Use interval_production task instead of interval_comparison."""
+        """MODIFIED: Use time_bisection task instead of interval_comparison."""
         import shutil
 
         attempt = 0
@@ -570,10 +494,10 @@ class EnhancedPiezoProductionAnalyzer:
                 # Create fresh hyperparameters for each attempt (IDENTICAL to original)
                 hp = self.create_enhanced_hp(use_piezo=use_piezo, use_insula=use_insula)
 
-                # Create trainer (MODIFIED: Use interval_production)
+                # Create trainer (MODIFIED: Use time_bisection)
                 trainer = train.Trainer(
                     model_dir=model_dir,
-                    rule_name='interval_production',  # CHANGED from interval_comparison
+                    rule_name='time_bisection',  # CHANGED from interval_comparison
                     hp=hp,
                     is_cuda=True
                 )
@@ -842,14 +766,14 @@ class EnhancedPiezoProductionAnalyzer:
                 for i, checkpoint in enumerate(performance_data):
                     data = checkpoint['data']
 
-                    # Extract metrics (MODIFIED for production task metrics)
-                    if 'success_action_prob' in data and 'mean_rel_action_time' in data:
-                        # Estimate training time (use index as proxy if not available)
+                    # Extract metrics (MODIFIED for time bisection task metrics)
+                    if 'success_action_prob' in data and 'mean_choice_error' in data:
+                        # Use training time if available, otherwise estimate
                         training_time = data.get('training_time', i * 100)  # Fallback
                         times.append(training_time)
 
-                        # For production task, use timing accuracy instead of choice error
-                        accuracy = 1 - min(data['mean_rel_action_time'], 1.0)  # Cap at 1.0
+                        # For bisection task, use choice accuracy instead of timing accuracy
+                        accuracy = 1 - data['mean_choice_error']
                         accuracies.append(accuracy)
                         success_probs.append(data['success_action_prob'])
 
@@ -951,8 +875,8 @@ class EnhancedPiezoProductionAnalyzer:
                     continue
 
                 try:
-                    # Create and load model (MODIFIED: Use interval_production)
-                    model = network.RNN(hp, is_cuda=True, rule_name='interval_production')
+                    # Create and load model (MODIFIED: Use time_bisection)
+                    model = network.RNN(hp, is_cuda=True, rule_name='time_bisection')
 
                     # Try to load the model
                     if not model.load(model_dir):
@@ -1044,7 +968,7 @@ class EnhancedPiezoProductionAnalyzer:
         fig, axes = plt.subplots(2, 2, figsize=(16, 12))
 
         # Colors for different runs
-        colors = ['blue', 'red', 'green', 'purple', 'orange', 'brown', 'pink', 'gray', 'olive', 'cyan']
+        color_map = {'no_piezo': COLORS['no_piezo'], 'piezo': COLORS['piezo']}
 
         # Plot 1: Individual eigenvalues for each run
         ax1 = axes[0, 0]
@@ -1062,18 +986,14 @@ class EnhancedPiezoProductionAnalyzer:
             marker_size = 25 if network_type == 'piezo' else 30
 
             for i, (eigenvalues, run_idx) in enumerate(zip(eigenvalues_list, successful_runs)):
-                color = colors[i % len(colors)]
+                color = color_map['piezo' if network_type == 'piezo' else 'no_piezo']
                 real_parts = eigenvalues.real
                 imag_parts = eigenvalues.imag
 
-                # Create label for first point only
-                if network_type == 'piezo':
-                    label = f'Piezo Run {run_idx}' if i < len(eigenvalues_list) else None
-                else:
-                    label = f'No-Piezo Run {run_idx}' if i < len(eigenvalues_list) else None
-
+                label = f'Piezo Run {run_idx}' if network_type == 'piezo' else f'No-Piezo Run {run_idx}'
                 ax1.scatter(real_parts, imag_parts, alpha=0.6, s=marker_size, c=color,
-                            marker=marker, label=label, edgecolors='black', linewidth=0.5)
+                            marker=marker, label=label if i == 0 else None,  # single legend entry per type
+                            edgecolors='black', linewidth=0.5)
 
         ax1.set_xlabel('Real Part')
         ax1.set_ylabel('Imaginary Part')
@@ -1102,12 +1022,8 @@ class EnhancedPiezoProductionAnalyzer:
             successful_runs = data['successful_runs']
 
             for i, (sr, run_idx) in enumerate(zip(spectral_radii, successful_runs)):
-                color = colors[i % len(colors)]
-                if network_type == 'piezo':
-                    label = f'Piezo Run {run_idx}'
-                else:
-                    label = f'No-Piezo Run {run_idx}'
-
+                color = color_map['piezo' if network_type == 'piezo' else 'no_piezo']
+                label = f'Piezo Run {run_idx}' if network_type == 'piezo' else f'No-Piezo Run {run_idx}'
                 all_spectral_radii.append(sr)
                 all_labels.append(label)
                 all_colors.append(color)
@@ -1139,17 +1055,12 @@ class EnhancedPiezoProductionAnalyzer:
             successful_runs = data['successful_runs']
 
             for i, (eigenvalues, run_idx) in enumerate(zip(eigenvalues_list, successful_runs)):
-                color = colors[i % len(colors)]
+                color = color_map['piezo' if network_type == 'piezo' else 'no_piezo']
                 magnitudes = np.abs(eigenvalues)
+                label = f'{network_type.title()} Run {run_idx}'
+                linestyle = '--' if network_type == 'piezo' else '-'
 
-                if network_type == 'piezo':
-                    label = f'Piezo Run {run_idx}'
-                    linestyle = '--'
-                else:
-                    label = f'No-Piezo Run {run_idx}'
-                    linestyle = '-'
-
-                ax3.hist(magnitudes, bins=30, alpha=0.5, color=color, label=label,
+                ax3.hist(magnitudes, bins=30, alpha=1.0, color=color, label=label,
                          density=True, histtype='step', linewidth=2, linestyle=linestyle)
 
         ax3.set_xlabel('Eigenvalue Magnitude')
@@ -1191,8 +1102,9 @@ class EnhancedPiezoProductionAnalyzer:
                 else:
                     readable_labels.append(t.replace('_', ' ').title())
 
+            bar_colors = [color_map['piezo' if t == 'piezo' else 'no_piezo'] for t in types]
             bars = ax4.bar(readable_labels, means, yerr=stds,
-                           color=['blue', 'red'][:len(types)], alpha=0.7, capsize=8)
+                           color=bar_colors, alpha=0.7, capsize=8)
 
             # Overlay individual points
             for i, network_type in enumerate(types):
@@ -1267,14 +1179,14 @@ class EnhancedPiezoProductionAnalyzer:
         print(f"\nSimulating Task-Relevant Piezo Response")
         print("=" * 60)
 
-        # TASK-RELEVANT DURATION: Match actual timing task length
-        task_duration_seconds = 6.5  # Slightly longer for safety
+        # TASK-RELEVANT DURATION: Match actual bisection task length
+        task_duration_seconds = 3.0  # Typical bisection task duration
         sequence_length = int(task_duration_seconds * 60)  # Convert to samples at 60 Hz
 
         print(f"Task-relevant simulation:")
-        print(f"   Duration: {task_duration_seconds} seconds (matches timing task)")
+        print(f"   Duration: {task_duration_seconds} seconds (matches bisection task)")
         print(f"   Samples: {sequence_length} at 60 Hz")
-        print(f"   Enhanced intervals: {self.enhanced_intervals['min_interval']}-{self.enhanced_intervals['max_interval']}ms")
+        print(f"   Bisection standards: {self.bisection_parameters['short_standard']}-{self.bisection_parameters['long_standard']}ms")
 
         # Generate realistic cardiac pressure for task duration
         pressure_data = generate_simple_cardiac_pressure(sequence_length, sampling_rate=60)
@@ -1348,14 +1260,14 @@ class EnhancedPiezoProductionAnalyzer:
         # Calculate task-relevant statistics
         correlation = np.corrcoef(slice_means, piezo_responses)[0, 1]
         heart_rate = actual_r_peaks / task_duration_seconds * 60
-        cardiac_cycles_per_interval = (self.enhanced_intervals['max_interval'] / 1000) / 0.8
+        cardiac_cycles_per_standard = (self.bisection_parameters['long_standard'] / 1000) / 0.8
 
         print(f"\nTask-relevant piezo simulation complete!")
         print(f"   Processed {len(slice_means)} slices")
         print(f"   Heart rate: {heart_rate:.0f} BPM ({actual_r_peaks} R-peaks)")
         print(f"   Correlation: {correlation:.3f}")
-        print(f"   Cardiac cycles per max interval: {cardiac_cycles_per_interval:.1f}")
-        print(f"   This is what happens during ONE timing task!")
+        print(f"   Cardiac cycles per long standard: {cardiac_cycles_per_standard:.1f}")
+        print(f"   This is what happens during ONE bisection task!")
 
         # Save data
         response_data = {
@@ -1368,7 +1280,7 @@ class EnhancedPiezoProductionAnalyzer:
             'task_duration': task_duration_seconds,
             'heart_rate': heart_rate,
             'correlation': correlation,
-            'cardiac_cycles_per_interval': cardiac_cycles_per_interval,
+            'cardiac_cycles_per_standard': cardiac_cycles_per_standard,
             'use_time_delay': self.use_time_delay
         }
 
@@ -1392,12 +1304,14 @@ class EnhancedPiezoProductionAnalyzer:
             r_peak_time = r_peak / 60
             ax1.axvline(r_peak_time, color='r', linestyle='--', alpha=0.7, linewidth=1)
 
-        # Add task timing overlay
-        max_interval_sec = self.enhanced_intervals['max_interval'] / 1000
-        ax1.axvspan(0, max_interval_sec, alpha=0.2, color='green', label=f'Max Interval ({max_interval_sec}s)')
+        # Add task timing overlay for bisection task
+        short_standard_sec = self.bisection_parameters['short_standard'] / 1000
+        long_standard_sec = self.bisection_parameters['long_standard'] / 1000
+        ax1.axvspan(0, short_standard_sec, alpha=0.2, color='green', label=f'Short Standard ({short_standard_sec}s)')
+        ax1.axvspan(0, long_standard_sec, alpha=0.2, color='orange', label=f'Long Standard ({long_standard_sec}s)')
 
         ax1.set_ylabel('Pressure')
-        ax1.set_title(f'Task-Relevant Cardiac Pressure ({task_duration:.1f}s = 1 Timing Task)')
+        ax1.set_title(f'Task-Relevant Cardiac Pressure ({task_duration:.1f}s = 1 Bisection Task)')
         ax1.grid(True, alpha=0.3)
         ax1.legend()
         ax1.set_xlim(0, task_duration)
@@ -1406,17 +1320,17 @@ class EnhancedPiezoProductionAnalyzer:
         ax2 = axes[1]
         ax2.plot(slice_times, slice_means, 'b-', linewidth=2, label='Slice Mean Pressure')
 
-        # Show task phases for production task
-        interval_end = max_interval_sec
-        delay_end = interval_end + 1.0  # 1 second delay
-        production_end = delay_end + max_interval_sec
+        # Show task phases for bisection task
+        stimulus_end = 1.0  # Typical stimulus duration
+        delay_end = stimulus_end + 0.3  # Delay period
+        response_end = delay_end + 0.3  # Response period
 
-        ax2.axvspan(0, interval_end, alpha=0.2, color='green', label='Initial Interval')
-        ax2.axvspan(interval_end, delay_end, alpha=0.2, color='yellow', label='Delay')
-        ax2.axvspan(delay_end, production_end, alpha=0.2, color='orange', label='Production')
+        ax2.axvspan(0, stimulus_end, alpha=0.2, color='green', label='Stimulus')
+        ax2.axvspan(stimulus_end, delay_end, alpha=0.2, color='yellow', label='Delay')
+        ax2.axvspan(delay_end, response_end, alpha=0.2, color='orange', label='Response')
 
         ax2.set_ylabel('Mean Pressure')
-        ax2.set_title('Cardiac Pressure During Production Task Phases')
+        ax2.set_title('Cardiac Pressure During Bisection Task Phases')
         ax2.grid(True, alpha=0.3)
         ax2.legend()
         ax2.set_xlim(0, task_duration)
@@ -1426,12 +1340,12 @@ class EnhancedPiezoProductionAnalyzer:
         ax3.plot(slice_times, piezo_responses, 'g-', linewidth=2, label='Piezo Response')
 
         # Same task phases
-        ax3.axvspan(0, interval_end, alpha=0.2, color='green', label='Initial Interval')
-        ax3.axvspan(interval_end, delay_end, alpha=0.2, color='yellow', label='Delay')
-        ax3.axvspan(delay_end, production_end, alpha=0.2, color='orange', label='Production')
+        ax3.axvspan(0, stimulus_end, alpha=0.2, color='green', label='Stimulus')
+        ax3.axvspan(stimulus_end, delay_end, alpha=0.2, color='yellow', label='Delay')
+        ax3.axvspan(delay_end, response_end, alpha=0.2, color='orange', label='Response')
 
         ax3.set_ylabel('Piezo Response')
-        ax3.set_title(f'Piezo Response During Production Task (Time Delay: {self.use_time_delay})')
+        ax3.set_title(f'Piezo Response During Bisection Task (Time Delay: {self.use_time_delay})')
         ax3.grid(True, alpha=0.3)
         ax3.legend()
         ax3.set_xlim(0, task_duration)
@@ -1466,6 +1380,241 @@ class EnhancedPiezoProductionAnalyzer:
         plt.close()
 
         print(f"Task-relevant visualization saved")
+
+    def _load_performance_data(self, model_dir):
+        """Load performance data from all available checkpoint directories."""
+        performance_data = []
+
+        # Check numbered checkpoints (0, 1, 2, ...)
+        checkpoint_idx = 0
+        while True:
+            checkpoint_dir = os.path.join(model_dir, str(checkpoint_idx))
+            if not os.path.exists(checkpoint_dir):
+                break
+
+            checkpoint_log = tools.load_log(checkpoint_dir)
+            if checkpoint_log:
+                performance_data.append({
+                    'checkpoint': str(checkpoint_idx),
+                    'data': checkpoint_log,
+                    'type': 'numbered'
+                })
+            checkpoint_idx += 1
+
+        # Check finalResult directory
+        final_result_dir = os.path.join(model_dir, 'finalResult')
+        if os.path.exists(final_result_dir):
+            final_log = tools.load_log(final_result_dir)
+            if final_log:
+                performance_data.append({
+                    'checkpoint': 'finalResult',
+                    'data': final_log,
+                    'type': 'final'
+                })
+
+        return performance_data
+
+    def _calculate_mean_accuracies(self, training_results):
+        """Calculate mean final accuracies for each network type."""
+        print(f"\nCalculating Mean Accuracies")
+        print("-" * 30)
+
+        accuracy_stats = {}
+
+        for network_type, network_results in training_results.items():
+            final_accuracies = []
+            final_success_probs = []
+            final_choice_errors = []
+
+            print(f"\nAnalyzing {network_type} final accuracies...")
+
+            for run_result in network_results['runs']:
+                if run_result['status'] != 'OK':
+                    continue
+
+                # Load final performance data
+                performance_data = self._load_performance_data(run_result['model_dir'])
+
+                if performance_data:
+                    # Use the last checkpoint (preferring finalResult if available)
+                    final_data = None
+
+                    # Look for finalResult first
+                    for checkpoint in performance_data:
+                        if checkpoint['type'] == 'final':
+                            final_data = checkpoint['data']
+                            break
+
+                    # If no finalResult, use the last numbered checkpoint
+                    if final_data is None and performance_data:
+                        final_data = performance_data[-1]['data']
+
+                    # MODIFIED for time bisection task metrics
+                    if final_data and 'mean_choice_error' in final_data:
+                        accuracy = 1 - final_data['mean_choice_error']
+                        final_accuracies.append(accuracy)
+                        final_choice_errors.append(final_data['mean_choice_error'])
+                        print(f"   Run {run_result['run_idx']}: accuracy = {accuracy:.3f}")
+
+                    if final_data and 'success_action_prob' in final_data:
+                        final_success_probs.append(final_data['success_action_prob'])
+
+            if final_accuracies:
+                accuracy_stats[network_type] = {
+                    'mean_accuracy': np.mean(final_accuracies),
+                    'std_accuracy': np.std(final_accuracies),
+                    'min_accuracy': np.min(final_accuracies),
+                    'max_accuracy': np.max(final_accuracies),
+                    'mean_choice_error': np.mean(final_choice_errors),
+                    'std_choice_error': np.std(final_choice_errors),
+                    'mean_success_prob': np.mean(final_success_probs) if final_success_probs else 0,
+                    'std_success_prob': np.std(final_success_probs) if final_success_probs else 0,
+                    'num_runs': len(final_accuracies),
+                    'individual_accuracies': final_accuracies,
+                    'individual_success_probs': final_success_probs
+                }
+
+                stats = accuracy_stats[network_type]
+                print(f"   Mean accuracy: {stats['mean_accuracy']:.3f} ± {stats['std_accuracy']:.3f}")
+                print(f"   Range: [{stats['min_accuracy']:.3f}, {stats['max_accuracy']:.3f}]")
+                print(f"   Mean success prob: {stats['mean_success_prob']:.3f}")
+                print(f"   Based on {stats['num_runs']} runs")
+
+        return accuracy_stats
+
+    def _plot_individual_model_performance(self, training_results):
+        """Generate individual performance graphs for each model run."""
+        print(f"\nGenerating Individual Model Performance Graphs")
+        print("-" * 45)
+
+        plots_created = 0
+
+        for network_type, network_results in training_results.items():
+            print(f"\nCreating plots for {network_type} models...")
+
+            for run_result in network_results['runs']:
+                if run_result['status'] != 'OK':
+                    print(f"   Skipping failed run {run_result['run_idx']}")
+                    continue
+
+                model_dir = run_result['model_dir']
+                run_idx = run_result['run_idx']
+
+                # Load performance data for this specific model
+                performance_data = self._load_performance_data(model_dir)
+
+                if not performance_data:
+                    print(f"   No performance data for run {run_idx}")
+                    continue
+
+                # Extract metrics (IDENTICAL to comparison task)
+                times = []
+                accuracies = []
+                success_probs = []
+                choice_errors = []
+                checkpoint_labels = []
+
+                for checkpoint in performance_data:
+                    data = checkpoint['data']
+                    checkpoint_name = checkpoint['checkpoint']
+
+                    if 'success_action_prob' in data and 'mean_choice_error' in data:
+                        # Use training time if available, otherwise estimate
+                        training_time = data.get('training_time', len(times) * 100)
+                        times.append(training_time)
+
+                        accuracy = 1 - data['mean_choice_error']
+                        accuracies.append(accuracy)
+                        success_probs.append(data['success_action_prob'])
+                        choice_errors.append(data['mean_choice_error'])
+                        checkpoint_labels.append(checkpoint_name)
+
+                if not times:
+                    print(f"   No valid performance data for run {run_idx}")
+                    continue
+
+                # Create individual plot
+                fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
+
+                # ---- sort & clean helpers ----
+                import numpy as np
+                def _sorted_xy(t_arr, v_arr):
+                    t = np.asarray(t_arr, dtype=float)
+                    v = np.asarray(v_arr, dtype=float)
+                    m = np.isfinite(t) & np.isfinite(v)
+                    t, v = t[m], v[m]
+                    if t.size:
+                        order = np.argsort(t)
+                        t, v = t[order], v[order]
+                    return t, v
+
+                # choose consistent color by network type
+                c = COLORS["piezo" if network_type == "piezo" else "no_piezo"]
+
+                # Plot 1: Accuracy over time (sorted)
+                t_acc, v_acc = _sorted_xy(times, accuracies)
+                ax1.plot(t_acc, v_acc, linestyle='-', marker='o', linewidth=2, markersize=6, color=c)
+                ax1.axhline(y=0.9, color='g', linestyle='--', alpha=0.7, label='90% threshold')
+                ax1.axhline(y=0.95, color='r', linestyle='--', alpha=0.7, label='95% threshold')
+                ax1.set_ylabel('Accuracy')
+                ax1.set_title(f'{network_type.title()} Run {run_idx} - Accuracy Over Time')
+                ax1.grid(True, alpha=0.3)
+                ax1.legend()
+                ax1.set_ylim(0, 1.05)
+
+                # Plot 2: Success probability over time (sorted)
+                t_sp, v_sp = _sorted_xy(times, success_probs)
+                ax2.plot(t_sp, v_sp, linestyle='--', marker='s', linewidth=2, markersize=6, color=c)
+                ax2.axhline(y=0.9, color='g', linestyle='--', alpha=0.7, label='90% threshold')
+                ax2.axhline(y=0.95, color='r', linestyle='--', alpha=0.7, label='95% threshold')
+                ax2.set_ylabel('Success Probability')
+                ax2.set_title(f'{network_type.title()} Run {run_idx} - Success Probability Over Time')
+                ax2.grid(True, alpha=0.3)
+                ax2.legend()
+                ax2.set_ylim(0, 1.05)
+
+                # Plot 3: Choice error over time (sorted, log-safe clip)
+                t_ce, v_ce = _sorted_xy(times, choice_errors)
+                if v_ce.size:
+                    v_ce = np.clip(v_ce, 1e-3, None)  # avoid zeros disappearing on log
+                    ax3.semilogy(t_ce, v_ce, linestyle='-', marker='^', linewidth=2, markersize=6, color=c, base=10)
+                ax3.axhline(y=0.1, color='g', linestyle='--', alpha=0.7, label='10% error')
+                ax3.axhline(y=0.05, color='r', linestyle='--', alpha=0.7, label='5% error')
+                ax3.set_xlabel('Training Time (s)')
+                ax3.set_ylabel('Choice Error (log scale)')
+                ax3.set_title(f'{network_type.title()} Run {run_idx} - Choice Error Over Time')
+                ax3.grid(True, alpha=0.3)
+                ax3.legend()
+
+                # Plot 4: Final performance summary (match series color)
+                ax4.bar(['Accuracy', 'Success Prob'],
+                        [accuracies[-1], success_probs[-1]],
+                        color=[c, c], alpha=0.7)
+                ax4.set_ylabel('Final Performance')
+                ax4.set_title(f'{network_type.title()} Run {run_idx} - Final Performance')
+                ax4.set_ylim(0, 1.05)
+                ax4.grid(True, alpha=0.3)
+
+                # Add values on bars
+                ax4.text(0, accuracies[-1] + 0.02, f'{accuracies[-1]:.3f}',
+                         ha='center', fontweight='bold')
+                ax4.text(1, success_probs[-1] + 0.02, f'{success_probs[-1]:.3f}',
+                         ha='center', fontweight='bold')
+
+                plt.suptitle(f'{network_type.title()} Model Run {run_idx} Performance Analysis (Time Bisection Task)',
+                             fontsize=14, fontweight='bold')
+                plt.tight_layout()
+
+                # Save individual plot
+                delay_suffix = "_with_delay" if self.use_time_delay else "_no_delay"
+                plot_filename = f'individual_{network_type}_run_{run_idx}_performance{delay_suffix}.png'
+                plt.savefig(os.path.join(self.output_dir, plot_filename), dpi=300, bbox_inches='tight')
+                plt.close()
+
+                print(f"   Created plot for run {run_idx}: {plot_filename}")
+                plots_created += 1
+
+        print(f"\nTotal individual plots created: {plots_created}")
 
     def plot_insula_weight_verification(self, training_results):
         """Plot insula weight norms to verify they remain frozen during training."""
@@ -1784,7 +1933,9 @@ class EnhancedPiezoProductionAnalyzer:
                 if os.path.exists(model_file):
                     checkpoint_dirs.append((int(item), model_file))
         
+        print(f"     Found {len(checkpoint_dirs)} checkpoint directories in {run_dir}")
         if not checkpoint_dirs:
+            print(f"     No valid checkpoint directories found")
             return None
         
         # Sort by checkpoint number
@@ -1808,10 +1959,18 @@ class EnhancedPiezoProductionAnalyzer:
         
         for step, model_path in checkpoint_dirs:
             try:
-                # Load model
-                model = network.RNN(hp, is_cuda=False, rule_name='interval_production')
+                # Load model (MODIFIED for time_bisection task)
+                model = network.RNN(hp, is_cuda=False, rule_name='time_bisection')
                 state_dict = torch.load(model_path, map_location='cpu')
                 model.load_state_dict(state_dict)
+                
+                # Check if model has insula components
+                if not hasattr(model, 'insula_gate') or model.insula_gate is None:
+                    print(f"     Warning: Checkpoint {step} has no insula_gate")
+                    continue
+                if not hasattr(model, 'insula_to_rnn') or model.insula_to_rnn is None:
+                    print(f"     Warning: Checkpoint {step} has no insula_to_rnn")
+                    continue
                 
                 # Extract gate value
                 gate_value = model.insula_gate.item()
@@ -1826,8 +1985,10 @@ class EnhancedPiezoProductionAnalyzer:
                 evolution_data['projection_norms'].append(projection_norm)
                 evolution_data['projection_matrices'].append(projection_weights.copy())
                 
+                print(f"     Checkpoint {step}: gate={gate_value:.4f}, proj_norm={projection_norm:.4f}")
+                
             except Exception as e:
-                print(f"   Warning: Could not load checkpoint {step}: {e}")
+                print(f"     Warning: Could not load checkpoint {step}: {e}")
                 continue
         
         return evolution_data if evolution_data['checkpoints'] else None
@@ -1851,14 +2012,24 @@ class EnhancedPiezoProductionAnalyzer:
         all_evolution_data = []
         for i, run in enumerate(successful_runs):
             run_dir = run.get('model_dir')
+            print(f"   Processing run {i+1}: {run_dir}")
             if run_dir and os.path.exists(run_dir):
                 evolution_data = self.extract_checkpoint_weight_evolution(run_dir)
                 if evolution_data:
                     evolution_data['run_id'] = i + 1
                     all_evolution_data.append(evolution_data)
+                    print(f"     Found {len(evolution_data['checkpoints'])} checkpoints: {evolution_data['checkpoints']}")
+                else:
+                    print(f"     No evolution data extracted from {run_dir}")
+            else:
+                print(f"     Run directory not found: {run_dir}")
         
         if not all_evolution_data:
             print("   No checkpoint evolution data found")
+            print("   This usually happens when:")
+            print("     - Training stopped too early (< 3 checkpoints)")
+            print("     - Checkpoint files are missing or corrupted") 
+            print("     - Insula interface not properly initialized")
             return
         
         # Create the three plots
@@ -1940,17 +2111,22 @@ class EnhancedPiezoProductionAnalyzer:
         checkpoints = evolution_data['checkpoints']
         matrices = evolution_data['projection_matrices']
         
-        if len(checkpoints) < 3:
-            print("   Not enough checkpoints for topology snapshots")
+        if len(checkpoints) < 2:
+            print("   Not enough checkpoints for topology snapshots (need at least 2)")
             return
+        elif len(checkpoints) < 3:
+            print(f"   Limited checkpoints ({len(checkpoints)}) - showing early/final snapshots only")
+            # Use only early and final for 2 checkpoints
+            snapshot_indices = [0, len(checkpoints) - 1]
+            snapshot_labels = ['Early', 'Final']
+        else:
+            # Standard early/mid/final for 3+ checkpoints
+            early_idx = 0
+            final_idx = len(checkpoints) - 1
+            mid_idx = len(checkpoints) // 2
+            snapshot_indices = [early_idx, mid_idx, final_idx]
+            snapshot_labels = ['Early', 'Mid', 'Final']
         
-        # Select early, mid, final snapshots
-        early_idx = 0
-        final_idx = len(checkpoints) - 1
-        mid_idx = len(checkpoints) // 2
-        
-        snapshot_indices = [early_idx, mid_idx, final_idx]
-        snapshot_labels = ['Early', 'Mid', 'Final']
         snapshot_steps = [checkpoints[i] for i in snapshot_indices]
         
         # Find global min/max for consistent color scale
@@ -1958,8 +2134,11 @@ class EnhancedPiezoProductionAnalyzer:
         global_min = min([np.min(matrix) for matrix in all_matrices])
         global_max = max([np.max(matrix) for matrix in all_matrices])
         
-        # Create 1x3 subplot for the three snapshots
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        # Create subplot for the snapshots (flexible number)
+        num_snapshots = len(snapshot_indices)
+        fig, axes = plt.subplots(1, num_snapshots, figsize=(5 * num_snapshots, 5))
+        if num_snapshots == 1:
+            axes = [axes]  # Make it iterable
         fig.suptitle('Insula→RNN Weight Topology Evolution', fontsize=16, fontweight='bold')
         
         for i, (idx, label, step) in enumerate(zip(snapshot_indices, snapshot_labels, snapshot_steps)):
@@ -1986,272 +2165,11 @@ class EnhancedPiezoProductionAnalyzer:
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         plt.close()
 
-    def _load_performance_data(self, model_dir):
-        """Load performance data from all available checkpoint directories."""
-        performance_data = []
-
-        # Check numbered checkpoints (0, 1, 2, ...)
-        checkpoint_idx = 0
-        while True:
-            checkpoint_dir = os.path.join(model_dir, str(checkpoint_idx))
-            if not os.path.exists(checkpoint_dir):
-                break
-
-            checkpoint_log = tools.load_log(checkpoint_dir)
-            if checkpoint_log:
-                performance_data.append({
-                    'checkpoint': str(checkpoint_idx),
-                    'data': checkpoint_log,
-                    'type': 'numbered'
-                })
-            checkpoint_idx += 1
-
-        # Check finalResult directory
-        final_result_dir = os.path.join(model_dir, 'finalResult')
-        if os.path.exists(final_result_dir):
-            final_log = tools.load_log(final_result_dir)
-            if final_log:
-                performance_data.append({
-                    'checkpoint': 'finalResult',
-                    'data': final_log,
-                    'type': 'final'
-                })
-
-        return performance_data
-
-    def _calculate_mean_accuracies(self, training_results):
-        """Calculate mean final accuracies for each network type."""
-        print(f"\nCalculating Mean Accuracies")
-        print("-" * 30)
-
-        accuracy_stats = {}
-
-        for network_type, network_results in training_results.items():
-            final_accuracies = []
-            final_success_probs = []
-            final_timing_errors = []  # MODIFIED for production task
-
-            print(f"\nAnalyzing {network_type} final accuracies...")
-
-            for run_result in network_results['runs']:
-                if run_result['status'] != 'OK':
-                    continue
-
-                # Load final performance data
-                performance_data = self._load_performance_data(run_result['model_dir'])
-
-                if performance_data:
-                    # Use the last checkpoint (preferring finalResult if available)
-                    final_data = None
-
-                    # Look for finalResult first
-                    for checkpoint in performance_data:
-                        if checkpoint['type'] == 'final':
-                            final_data = checkpoint['data']
-                            break
-
-                    # If no finalResult, use the last numbered checkpoint
-                    if final_data is None and performance_data:
-                        final_data = performance_data[-1]['data']
-
-                    # MODIFIED for production task metrics
-                    if final_data and 'mean_rel_action_time' in final_data:
-                        timing_error = final_data['mean_rel_action_time']
-                        accuracy = 1 - min(timing_error, 1.0)  # Cap at 1.0
-                        final_accuracies.append(accuracy)
-                        final_timing_errors.append(timing_error)
-                        print(f"   Run {run_result['run_idx']}: accuracy = {accuracy:.3f}, timing error = {timing_error:.3f}")
-
-                    if final_data and 'success_action_prob' in final_data:
-                        final_success_probs.append(final_data['success_action_prob'])
-
-            if final_accuracies:
-                accuracy_stats[network_type] = {
-                    'mean_accuracy': np.mean(final_accuracies),
-                    'std_accuracy': np.std(final_accuracies),
-                    'min_accuracy': np.min(final_accuracies),
-                    'max_accuracy': np.max(final_accuracies),
-                    'mean_timing_error': np.mean(final_timing_errors),  # MODIFIED
-                    'std_timing_error': np.std(final_timing_errors),    # MODIFIED
-                    'mean_success_prob': np.mean(final_success_probs) if final_success_probs else 0,
-                    'std_success_prob': np.std(final_success_probs) if final_success_probs else 0,
-                    'num_runs': len(final_accuracies),
-                    'individual_accuracies': final_accuracies,
-                    'individual_success_probs': final_success_probs
-                }
-
-                stats = accuracy_stats[network_type]
-                print(f"   Mean accuracy: {stats['mean_accuracy']:.3f} ± {stats['std_accuracy']:.3f}")
-                print(f"   Range: [{stats['min_accuracy']:.3f}, {stats['max_accuracy']:.3f}]")
-                print(f"   Mean timing error: {stats['mean_timing_error']:.3f}")
-                print(f"   Mean success prob: {stats['mean_success_prob']:.3f}")
-                print(f"   Based on {stats['num_runs']} runs")
-
-        return accuracy_stats
-
-    def _plot_individual_model_performance(self, training_results):
-        """Generate individual performance graphs for each model run."""
-        print(f"\nGenerating Individual Model Performance Graphs")
-        print("-" * 45)
-
-        plots_created = 0
-
-        for network_type, network_results in training_results.items():
-            print(f"\nCreating plots for {network_type} models...")
-
-            for run_result in network_results['runs']:
-                if run_result['status'] != 'OK':
-                    print(f"   Skipping failed run {run_result['run_idx']}")
-                    continue
-
-                model_dir = run_result['model_dir']
-                run_idx = run_result['run_idx']
-
-                # Load performance data for this specific model
-                performance_data = self._load_performance_data(model_dir)
-
-                if not performance_data:
-                    print(f"   No performance data for run {run_idx}")
-                    continue
-
-                # Extract metrics (MODIFIED for production task)
-                times = []
-                accuracies = []
-                success_probs = []
-                timing_errors = []  # MODIFIED
-                checkpoint_labels = []
-
-                for checkpoint in performance_data:
-                    data = checkpoint['data']
-                    checkpoint_name = checkpoint['checkpoint']
-
-                    if 'success_action_prob' in data and 'mean_rel_action_time' in data:
-                        # Use training time if available, otherwise estimate
-                        training_time = data.get('training_time', len(times) * 100)
-                        times.append(training_time)
-
-                        timing_error = data['mean_rel_action_time']
-                        accuracy = 1 - min(timing_error, 1.0)  # Cap at 1.0
-                        accuracies.append(accuracy)
-                        success_probs.append(data['success_action_prob'])
-                        timing_errors.append(timing_error)
-                        checkpoint_labels.append(checkpoint_name)
-
-                if not times:
-                    print(f"   No valid performance data for run {run_idx}")
-                    continue
-
-                # Create individual plot (MODIFIED for production task)
-                fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
-
-                # Plot 1: Accuracy over time
-                ax1.plot(times, accuracies, 'b-', marker='o', linewidth=2, markersize=6)
-                ax1.axhline(y=0.9, color='g', linestyle='--', alpha=0.7, label='90% threshold')
-                ax1.axhline(y=0.95, color='r', linestyle='--', alpha=0.7, label='95% threshold')
-                ax1.set_ylabel('Accuracy')
-                ax1.set_title(f'{network_type.title()} Run {run_idx} - Accuracy Over Time')
-                ax1.grid(True, alpha=0.3)
-                ax1.legend()
-                ax1.set_ylim(0, 1.05)
-
-                # Plot 2: Success probability over time
-                ax2.plot(times, success_probs, 'r-', marker='s', linewidth=2, markersize=6)
-                ax2.axhline(y=0.9, color='g', linestyle='--', alpha=0.7, label='90% threshold')
-                ax2.axhline(y=0.95, color='r', linestyle='--', alpha=0.7, label='95% threshold')
-                ax2.set_ylabel('Success Probability')
-                ax2.set_title(f'{network_type.title()} Run {run_idx} - Success Probability Over Time')
-                ax2.grid(True, alpha=0.3)
-                ax2.legend()
-                ax2.set_ylim(0, 1.05)
-
-                # Plot 3: Timing error over time (MODIFIED for production task)
-                ax3.plot(times, timing_errors, 'orange', marker='^', linewidth=2, markersize=6)
-                ax3.axhline(y=0.1, color='g', linestyle='--', alpha=0.7, label='10% error')
-                ax3.axhline(y=0.05, color='r', linestyle='--', alpha=0.7, label='5% error')
-                ax3.set_xlabel('Training Time (s)')
-                ax3.set_ylabel('Relative Timing Error')
-                ax3.set_title(f'{network_type.title()} Run {run_idx} - Timing Error Over Time')
-                ax3.grid(True, alpha=0.3)
-                ax3.legend()
-
-                # Plot 4: Final performance summary
-                ax4.bar(['Accuracy', 'Success Prob'],
-                        [accuracies[-1], success_probs[-1]],
-                        color=['blue', 'red'], alpha=0.7)
-                ax4.set_ylabel('Final Performance')
-                ax4.set_title(f'{network_type.title()} Run {run_idx} - Final Performance')
-                ax4.set_ylim(0, 1.05)
-                ax4.grid(True, alpha=0.3)
-
-                # Add values on bars
-                ax4.text(0, accuracies[-1] + 0.02, f'{accuracies[-1]:.3f}',
-                         ha='center', fontweight='bold')
-                ax4.text(1, success_probs[-1] + 0.02, f'{success_probs[-1]:.3f}',
-                         ha='center', fontweight='bold')
-
-                plt.suptitle(f'{network_type.title()} Model Run {run_idx} Performance Analysis (Production Task)',
-                             fontsize=14, fontweight='bold')
-                plt.tight_layout()
-
-                # Save individual plot
-                delay_suffix = "_with_delay" if self.use_time_delay else "_no_delay"
-                plot_filename = f'individual_{network_type}_run_{run_idx}_performance{delay_suffix}.png'
-                plt.savefig(os.path.join(self.output_dir, plot_filename), dpi=300, bbox_inches='tight')
-                plt.close()
-
-                print(f"   Created plot for run {run_idx}: {plot_filename}")
-                plots_created += 1
-
-        print(f"\nTotal individual plots created: {plots_created}")
-
-    def _save_multiple_runs_summary(self, results):
-        """Save training summary for multiple runs."""
-        summary = {
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'enhanced_intervals': self.enhanced_intervals,
-            'use_time_delay': self.use_time_delay,
-            'num_runs': self.num_runs,
-            'networks': {}
-        }
-
-        for network_type, network_results in results.items():
-            successful_runs = network_results['successful_runs']
-            failed_runs = network_results['failed_runs']
-            total_time = network_results['total_training_time']
-
-            network_summary = {
-                'total_runs': self.num_runs,
-                'successful_runs': successful_runs,
-                'failed_runs': failed_runs,
-                'success_rate': successful_runs / self.num_runs,
-                'total_training_time': total_time,
-                'average_training_time': total_time / self.num_runs if self.num_runs > 0 else 0,
-                'runs': []
-            }
-
-            for run_result in network_results['runs']:
-                run_detail = {
-                    'run_idx': run_result['run_idx'],
-                    'status': run_result['status'],
-                    'training_time': run_result['training_time'],
-                    'model_dir': run_result['model_dir'],
-                    'successful': run_result['status'] == 'OK'
-                }
-                network_summary['runs'].append(run_detail)
-
-            summary['networks'][network_type] = network_summary
-
-        with open(os.path.join(self.output_dir, 'enhanced_consolidated_analysis_summary.json'), 'w') as f:
-            import json
-            json.dump(summary, f, indent=2)
-
-        print(f"Enhanced consolidated analysis summary saved")
-
     def _save_insula_runs_summary(self, results):
         """Save training summary for insula runs."""
         summary = {
             'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'enhanced_intervals': self.enhanced_intervals,
+            'bisection_parameters': self.bisection_parameters,
             'use_time_delay': self.use_time_delay,
             'num_runs': self.num_runs,
             'networks': {}
@@ -2290,13 +2208,56 @@ class EnhancedPiezoProductionAnalyzer:
 
         print(f"Enhanced insula analysis summary saved")
 
+    def _save_multiple_runs_summary(self, results):
+        """Save training summary for multiple runs."""
+        summary = {
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'bisection_parameters': self.bisection_parameters,
+            'use_time_delay': self.use_time_delay,
+            'num_runs': self.num_runs,
+            'networks': {}
+        }
+
+        for network_type, network_results in results.items():
+            successful_runs = network_results['successful_runs']
+            failed_runs = network_results['failed_runs']
+            total_time = network_results['total_training_time']
+
+            network_summary = {
+                'total_runs': self.num_runs,
+                'successful_runs': successful_runs,
+                'failed_runs': failed_runs,
+                'success_rate': successful_runs / self.num_runs,
+                'total_training_time': total_time,
+                'average_training_time': total_time / self.num_runs if self.num_runs > 0 else 0,
+                'runs_details': []
+            }
+
+            for run_result in network_results['runs']:
+                run_detail = {
+                    'run_idx': run_result['run_idx'],
+                    'status': run_result['status'],
+                    'training_time': run_result['training_time'],
+                    'model_dir': run_result['model_dir'],
+                    'successful': run_result['status'] == 'OK'
+                }
+                network_summary['runs_details'].append(run_detail)
+
+            summary['networks'][network_type] = network_summary
+
+        with open(os.path.join(self.output_dir, 'enhanced_consolidated_analysis_summary.json'), 'w') as f:
+            import json
+            json.dump(summary, f, indent=2)
+
+        print(f"Enhanced consolidated analysis summary saved")
+
     def run_insula_analysis(self, max_samples=5e5, load_existing=False):
         """Run the complete enhanced insula analysis (insula networks only)."""
-        print(f"\nENHANCED INSULA NETWORK ANALYSIS (PRODUCTION TASK)")
+        print(f"\nENHANCED INSULA NETWORK ANALYSIS (TIME BISECTION TASK)")
         print("=" * 80)
         print(f"Analysis Parameters:")
-        print(f"   Task: Interval Production")
-        print(f"   Enhanced Intervals: {self.enhanced_intervals['min_interval']}-{self.enhanced_intervals['max_interval']}ms")
+        print(f"   Task: Time Bisection")
+        print(f"   Bisection standards: {self.bisection_parameters['short_standard']}-{self.bisection_parameters['long_standard']}ms")
         print(f"   Max Samples: {max_samples:,.0f}")
         print(f"   Runs per network: {self.num_runs}")
         print(f"   Time Delay: {'ENABLED' if self.use_time_delay else 'DISABLED'}")
@@ -2360,11 +2321,11 @@ class EnhancedPiezoProductionAnalyzer:
 
     def run_full_comparison(self, max_samples=5e5, load_existing=False):
         """Run the complete enhanced comparison analysis."""
-        print(f"\nENHANCED PIEZO VS NON-PIEZO COMPREHENSIVE COMPARISON (PRODUCTION TASK)")
+        print(f"\nENHANCED PIEZO VS NON-PIEZO COMPREHENSIVE COMPARISON (TIME BISECTION TASK)")
         print("=" * 80)
         print(f"Analysis Parameters:")
-        print(f"   Task: Interval Production")  # MODIFIED
-        print(f"   Enhanced Intervals: {self.enhanced_intervals['min_interval']}-{self.enhanced_intervals['max_interval']}ms")
+        print(f"   Task: Time Bisection")  # MODIFIED
+        print(f"   Bisection Standards: {self.bisection_parameters['short_standard']}-{self.bisection_parameters['long_standard']}ms")
         print(f"   Max Samples: {max_samples:,.0f}")
         print(f"   Runs per network: {self.num_runs}")
         print(f"   Time Delay: {'ENABLED' if self.use_time_delay else 'DISABLED'}")
@@ -2418,20 +2379,225 @@ class EnhancedPiezoProductionAnalyzer:
             'convergence_results': convergence_results
         }
 
+    def _generate_enhanced_insula_report(self, training_results, eigenvalue_results, piezo_data,
+                                         convergence_results, accuracy_stats):
+        """Generate enhanced final report for insula analysis."""
+        report = []
+        report.append("ENHANCED INSULA NETWORK ANALYSIS (TIME BISECTION TASK)")
+        report.append("=" * 60)
+        report.append(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        report.append(f"Training runs per network: {self.num_runs}")
+        report.append(f"Time Delay: {'ENABLED' if self.use_time_delay else 'DISABLED'}")
+        report.append(f"Max samples per run: {5e5:,.0f}")
+        report.append("")
+        report.append("TASK: TIME BISECTION")
+        report.append("Networks learn to classify time intervals as short or long")
+        report.append("Bisection task with standards and test intervals")
+        report.append("")
+        report.append("INSULA INTERFACE:")
+        report.append("   Pretrained + frozen insula module")
+        report.append("   ECG processing with aINS projection to RNN")
+        report.append("   Learnable gate parameter for modulation strength")
+        report.append("")
+
+        # Training Results Summary
+        report.append("INSULA TRAINING RESULTS")
+        report.append("-" * 25)
+
+        total_successful = 0
+        total_failed = 0
+
+        for network_type, network_results in training_results.items():
+            successful = network_results['successful_runs']
+            failed = network_results['failed_runs']
+            total_time = network_results['total_training_time']
+            success_rate = successful / self.num_runs * 100
+
+            total_successful += successful
+            total_failed += failed
+
+            report.append(f"{network_type.upper()}:")
+            report.append(f"  Successful runs: {successful}/{self.num_runs} ({success_rate:.1f}%)")
+            report.append(f"  Failed runs: {failed}/{self.num_runs}")
+            report.append(f"  Total training time: {total_time:.1f}s")
+            report.append(f"  Average time per run: {total_time / self.num_runs:.1f}s")
+            report.append("")
+
+        report.append(f"OVERALL TRAINING SUMMARY:")
+        report.append(f"  Total successful runs: {total_successful}/{self.num_runs}")
+        report.append(f"  Total failed runs: {total_failed}/{self.num_runs}")
+        report.append(f"  Overall success rate: {total_successful / self.num_runs * 100:.1f}%")
+        report.append("")
+
+        # Enhanced Insula Gate Analysis
+        report.append("ENHANCED INSULA GATE ANALYSIS")
+        report.append("-" * 33)
+
+        insula_gate_stats = []
+        if 'insula' in training_results:
+            for run_result in training_results['insula']['runs']:
+                if run_result['status'] == 'OK':
+                    insula_file = os.path.join(run_result['model_dir'], 'insula_analysis.pkl')
+                    if os.path.exists(insula_file):
+                        try:
+                            with open(insula_file, 'rb') as f:
+                                insula_data = pickle.load(f)
+                            insula_gate_stats.append(insula_data)
+                        except:
+                            continue
+
+        if insula_gate_stats:
+            # Safely extract final gate values, handling cases where data might be incomplete
+            final_gate_values = []
+            for data in insula_gate_stats:
+                if data and data.get('final_connections') and 'gate_value' in data['final_connections']:
+                    final_gate_values.append(data['final_connections']['gate_value'])
+            
+            if final_gate_values:
+                report.append(f"Insula Gate Evolution:")
+                report.append(f"  Final gate values: {np.mean(final_gate_values):.3f} ± {np.std(final_gate_values):.3f}")
+                report.append(f"  Range: [{np.min(final_gate_values):.3f}, {np.max(final_gate_values):.3f}]")
+                report.append(f"  Analysis based on {len(final_gate_values)} successful insula runs with complete data")
+                
+                # Check if gate values changed significantly from initial
+                initial_gate = 0.2  # Default gate initialization
+                mean_change = np.mean(final_gate_values) - initial_gate
+                report.append(f"  Mean change from initial ({initial_gate:.3f}): {mean_change:.3f}")
+            else:
+                report.append(f"Insula Gate Evolution:")
+                report.append(f"  No complete gate evolution data available")
+                report.append(f"  Found {len(insula_gate_stats)} insula runs but no complete gate data")
+        else:
+            report.append("No insula gate data available (no successful insula runs)")
+
+        report.append("")
+
+        # Enhanced Convergence Analysis
+        report.append("ENHANCED CONVERGENCE ANALYSIS")
+        report.append("-" * 32)
+
+        for network_type, conv_data in convergence_results.items():
+            if conv_data['successful_runs'] > 0:
+                report.append(f"{network_type.upper()}:")
+                report.append(f"  Successful runs: {conv_data['successful_runs']}")
+                report.append(f"  Avg training time: {conv_data['avg_training_time']:.1f}s")
+                report.append(f"  Avg training steps: {conv_data['avg_training_steps']:.0f}")
+
+                # Report convergence to different thresholds
+                for threshold_name, stats in conv_data['convergence_stats'].items():
+                    achieved = stats['achieved_count']
+                    total = conv_data['successful_runs']
+                    if achieved > 0:
+                        success_rate = achieved / total * 100
+                        avg_time = np.mean(stats['times'])
+                        avg_steps = np.mean(stats['steps'])
+                        report.append(f"    {threshold_name}: {success_rate:.1f}% achieved, avg {avg_time:.1f}s, {avg_steps:.0f} steps")
+                    else:
+                        report.append(f"    {threshold_name}: 0% achieved")
+                report.append("")
+
+        # Mean Accuracy Analysis
+        report.append("MEAN ACCURACY ANALYSIS (TIME BISECTION TASK)")
+        report.append("-" * 40)
+
+        for network_type, stats in accuracy_stats.items():
+            report.append(f"{network_type.upper()}:")
+            report.append(f"  Mean final accuracy: {stats['mean_accuracy']:.3f} ± {stats['std_accuracy']:.3f}")
+            report.append(f"  Accuracy range: [{stats['min_accuracy']:.3f}, {stats['max_accuracy']:.3f}]")
+            report.append(f"  Mean success probability: {stats['mean_success_prob']:.3f} ± {stats['std_success_prob']:.3f}")
+            report.append(f"  Based on {stats['num_runs']} successful runs")
+            report.append("")
+
+        # Eigenvalue Analysis Results
+        report.append("INDIVIDUAL RUNS EIGENVALUE & SPECTRAL RADIUS ANALYSIS")
+        report.append("-" * 55)
+
+        if eigenvalue_results:
+            for network_type, data in eigenvalue_results.items():
+                report.append(f"{network_type.upper()}:")
+                report.append(f"  Analyzed runs: {len(data['successful_runs'])}")
+                report.append(f"  Spectral radius: {data['mean_spectral_radius']:.4f} ± {data['std_spectral_radius']:.4f}")
+                report.append(f"  Spectral radius range: [{data['min_spectral_radius']:.4f}, {data['max_spectral_radius']:.4f}]")
+
+                if 'eigenvalue_statistics' in data:
+                    stats_list = data['eigenvalue_statistics']
+                    if stats_list:
+                        spectral_radii = [s['spectral_radius'] for s in stats_list]
+                        unstable_runs = sum(1 for sr in spectral_radii if sr > 1.1)
+                        report.append(f"  Potentially unstable runs: {unstable_runs}/{len(spectral_radii)}")
+                report.append("")
+        else:
+            report.append("No eigenvalue analysis available (no successful trainings)")
+            report.append("")
+
+        # Piezo Response Analysis (for reference) - only if piezo data exists
+        if piezo_data is not None:
+            report.append("PIEZO RESPONSE ANALYSIS (REFERENCE)")
+            report.append("-" * 35)
+            correlation = np.corrcoef(piezo_data['slice_means'], piezo_data['piezo_responses'])[0, 1]
+            report.append(f"Slice-Response Correlation: {correlation:.3f}")
+            report.append(f"Heart Rate: {piezo_data['heart_rate']:.0f} BPM")
+            report.append(f"R-Peaks per Task: {len(piezo_data['r_peaks'])}")
+            report.append("")
+        else:
+            report.append("PIEZO RESPONSE ANALYSIS (SKIPPED - INSULA-ONLY MODE)")
+            report.append("-" * 50)
+            report.append("Piezo analysis skipped for insula-only training.")
+            report.append("")
+
+        # Enhanced Insula Summary
+        report.append("ENHANCED INSULA SUMMARY")
+        report.append("-" * 24)
+
+        if 'insula' in accuracy_stats:
+            insula_acc = accuracy_stats['insula']['mean_accuracy']
+            report.append(f"Insula Performance:")
+            report.append(f"  Final accuracy: {insula_acc:.3f} ± {accuracy_stats['insula']['std_accuracy']:.3f}")
+            report.append(f"  Success rate: {total_successful / self.num_runs * 100:.1f}%")
+            report.append(f"  Average training time: {training_results['insula']['total_training_time'] / max(training_results['insula']['successful_runs'], 1):.1f}s")
+
+        report.append("")
+
+        # Save enhanced report
+        report_text = "\n".join(report)
+        with open(os.path.join(self.output_dir, 'enhanced_insula_analysis_report.txt'), 'w') as f:
+            f.write(report_text)
+
+        print("Enhanced insula analysis report saved!")
+
+        # Print summary to console
+        print(f"\nENHANCED INSULA ANALYSIS SUMMARY:")
+        print(f"   Overall success rate: {total_successful / self.num_runs * 100:.1f}%")
+        print(f"   Total training runs: {self.num_runs}")
+        if accuracy_stats:
+            for network_type, stats in accuracy_stats.items():
+                print(f"   {network_type.title()} mean accuracy: {stats['mean_accuracy']:.3f}")
+        print(f"   Eigenvalue analysis: {'Available' if eigenvalue_results else 'Not available'}")
+        if piezo_data is not None:
+            correlation = np.corrcoef(piezo_data['slice_means'], piezo_data['piezo_responses'])[0, 1]
+            print(f"   Piezo correlation: {correlation:.3f}")
+        else:
+            print(f"   Piezo correlation: N/A (insula-only mode)")
+        print(f"   Gate analysis: {'Available' if insula_gate_stats else 'Not available'}")
+        print(f"   Convergence analysis: {'Available' if convergence_results else 'Not available'}")
+        print(f"   Individual plots created: Available")
+        print(f"   Full enhanced report: {os.path.join(self.output_dir, 'enhanced_insula_analysis_report.txt')}")
+
     def _generate_enhanced_report(self, training_results, eigenvalue_results, piezo_data,
                                   convergence_results, accuracy_stats):
         """Generate enhanced final report with connectivity and convergence analysis."""
         report = []
-        report.append("ENHANCED PIEZO VS NON-PIEZO NETWORK COMPARISON (PRODUCTION TASK)")
+        report.append("ENHANCED PIEZO VS NON-PIEZO NETWORK COMPARISON (TIME BISECTION TASK)")
         report.append("=" * 70)
         report.append(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         report.append(f"Training runs per network: {self.num_runs}")
         report.append(f"Time Delay: {'ENABLED' if self.use_time_delay else 'DISABLED'}")
         report.append(f"Max samples per run: {5e5:,.0f}")
         report.append("")
-        report.append("TASK: INTERVAL PRODUCTION")
-        report.append("Networks learn to reproduce time intervals")
-        report.append("See two pulses -> learn to output after same interval")
+        report.append("TASK: TIME BISECTION")
+        report.append("Networks learn to classify stimulus durations as 'short' or 'long'")
+        report.append(f"Short standard: {self.bisection_parameters['short_standard']}ms")
+        report.append(f"Long standard: {self.bisection_parameters['long_standard']}ms")
         report.append("")
         report.append("ENHANCEMENTS:")
         report.append("   Connectivity parameter tracking (initial vs final + correlation)")
@@ -2555,15 +2721,15 @@ class EnhancedPiezoProductionAnalyzer:
                         report.append(f"    {threshold_name}: 0% achieved")
                 report.append("")
 
-        # Mean Accuracy Analysis (MODIFIED for production task)
-        report.append("MEAN ACCURACY ANALYSIS (PRODUCTION TASK)")
-        report.append("-" * 38)
+        # Mean Accuracy Analysis (MODIFIED for time bisection task)
+        report.append("MEAN ACCURACY ANALYSIS (TIME BISECTION TASK)")
+        report.append("-" * 42)
 
         for network_type, stats in accuracy_stats.items():
             report.append(f"{network_type.upper()}:")
             report.append(f"  Mean final accuracy: {stats['mean_accuracy']:.3f} ± {stats['std_accuracy']:.3f}")
             report.append(f"  Accuracy range: [{stats['min_accuracy']:.3f}, {stats['max_accuracy']:.3f}]")
-            report.append(f"  Mean timing error: {stats['mean_timing_error']:.3f} ± {stats['std_timing_error']:.3f}")
+            report.append(f"  Mean choice error: {stats['mean_choice_error']:.3f} ± {stats['std_choice_error']:.3f}")
             report.append(f"  Mean success probability: {stats['mean_success_prob']:.3f} ± {stats['std_success_prob']:.3f}")
             report.append(f"  Based on {stats['num_runs']} successful runs")
             report.append("")
@@ -2590,21 +2756,15 @@ class EnhancedPiezoProductionAnalyzer:
             report.append("No eigenvalue analysis available (no successful trainings)")
             report.append("")
 
-        # Piezo Response Analysis - only if piezo data exists
-        if piezo_data is not None:
-            report.append("PIEZO RESPONSE ANALYSIS")
-            report.append("-" * 20)
-            correlation = np.corrcoef(piezo_data['slice_means'], piezo_data['piezo_responses'])[0, 1]
-            report.append(f"Slice-Response Correlation: {correlation:.3f}")
-            report.append(f"Heart Rate: {piezo_data['heart_rate']:.0f} BPM")
-            report.append(f"R-Peaks per Task: {len(piezo_data['r_peaks'])}")
-            report.append(f"Cardiac Cycles per Max Interval: {piezo_data['cardiac_cycles_per_interval']:.1f}")
-            report.append("")
-        else:
-            report.append("PIEZO RESPONSE ANALYSIS (SKIPPED - INSULA-ONLY MODE)")
-            report.append("-" * 50)
-            report.append("Piezo analysis skipped for insula-only training.")
-            report.append("")
+        # Piezo Response Analysis
+        report.append("PIEZO RESPONSE ANALYSIS")
+        report.append("-" * 20)
+        correlation = np.corrcoef(piezo_data['slice_means'], piezo_data['piezo_responses'])[0, 1]
+        report.append(f"Slice-Response Correlation: {correlation:.3f}")
+        report.append(f"Heart Rate: {piezo_data['heart_rate']:.0f} BPM")
+        report.append(f"R-Peaks per Task: {len(piezo_data['r_peaks'])}")
+        report.append(f"Cardiac Cycles per Long Standard: {piezo_data['cardiac_cycles_per_standard']:.1f}")
+        report.append("")
 
         # Enhanced Comparative Summary
         report.append("ENHANCED COMPARATIVE SUMMARY")
@@ -2663,225 +2823,24 @@ class EnhancedPiezoProductionAnalyzer:
             for network_type, stats in accuracy_stats.items():
                 print(f"   {network_type.title()} mean accuracy: {stats['mean_accuracy']:.3f}")
         print(f"   Eigenvalue analysis: {'Available' if eigenvalue_results else 'Not available'}")
-        if piezo_data is not None:
-            correlation = np.corrcoef(piezo_data['slice_means'], piezo_data['piezo_responses'])[0, 1]
-            print(f"   Piezo correlation: {correlation:.3f}")
-        else:
-            print(f"   Piezo correlation: N/A (insula-only mode)")
+        print(f"   Piezo correlation: {correlation:.3f}")
         print(f"   Connectivity analysis: {'Available' if connectivity_stats else 'Not available'}")
         print(f"   Convergence analysis: {'Available' if convergence_results else 'Not available'}")
         print(f"   Individual plots created: Available")
         print(f"   Full enhanced report: {os.path.join(self.output_dir, 'enhanced_analysis_report.txt')}")
 
-    def _generate_enhanced_insula_report(self, training_results, eigenvalue_results, piezo_data,
-                                         convergence_results, accuracy_stats):
-        """Generate enhanced final report for insula analysis."""
-        report = []
-        report.append("ENHANCED INSULA NETWORK ANALYSIS (PRODUCTION TASK)")
-        report.append("=" * 60)
-        report.append(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-        report.append(f"Training runs per network: {self.num_runs}")
-        report.append(f"Time Delay: {'ENABLED' if self.use_time_delay else 'DISABLED'}")
-        report.append(f"Max samples per run: {5e5:,.0f}")
-        report.append("")
-        report.append("TASK: INTERVAL PRODUCTION")
-        report.append("Networks learn to reproduce time intervals")
-        report.append("See two pulses -> learn to output after same interval")
-        report.append("")
-        report.append("INSULA INTERFACE:")
-        report.append("   Pretrained + frozen insula module")
-        report.append("   ECG processing with aINS projection to RNN")
-        report.append("   Learnable gate parameter for modulation strength")
-        report.append("")
-
-        # Training Results Summary
-        report.append("INSULA TRAINING RESULTS")
-        report.append("-" * 25)
-
-        total_successful = 0
-        total_failed = 0
-
-        for network_type, network_results in training_results.items():
-            successful = network_results['successful_runs']
-            failed = network_results['failed_runs']
-            total_time = network_results['total_training_time']
-            success_rate = successful / self.num_runs * 100
-
-            total_successful += successful
-            total_failed += failed
-
-            report.append(f"{network_type.upper()}:")
-            report.append(f"  Successful runs: {successful}/{self.num_runs} ({success_rate:.1f}%)")
-            report.append(f"  Failed runs: {failed}/{self.num_runs}")
-            report.append(f"  Total training time: {total_time:.1f}s")
-            report.append(f"  Average time per run: {total_time / self.num_runs:.1f}s")
-            report.append("")
-
-        report.append(f"OVERALL TRAINING SUMMARY:")
-        report.append(f"  Total successful runs: {total_successful}/{self.num_runs}")
-        report.append(f"  Total failed runs: {total_failed}/{self.num_runs}")
-        report.append(f"  Overall success rate: {total_successful / self.num_runs * 100:.1f}%")
-        report.append("")
-
-        # Enhanced Insula Gate Analysis
-        report.append("ENHANCED INSULA GATE ANALYSIS")
-        report.append("-" * 33)
-
-        insula_gate_stats = []
-        if 'insula' in training_results:
-            for run_result in training_results['insula']['runs']:
-                if run_result['status'] == 'OK':
-                    insula_file = os.path.join(run_result['model_dir'], 'insula_analysis.pkl')
-                    if os.path.exists(insula_file):
-                        try:
-                            with open(insula_file, 'rb') as f:
-                                insula_data = pickle.load(f)
-                            insula_gate_stats.append(insula_data)
-                        except:
-                            continue
-
-        if insula_gate_stats:
-            final_gate_values = [data['final_connections']['gate_value'] for data in insula_gate_stats]
-            
-            report.append(f"Insula Gate Evolution:")
-            report.append(f"  Final gate values: {np.mean(final_gate_values):.3f} ± {np.std(final_gate_values):.3f}")
-            report.append(f"  Range: [{np.min(final_gate_values):.3f}, {np.max(final_gate_values):.3f}]")
-            report.append(f"  Analysis based on {len(insula_gate_stats)} successful insula runs")
-            
-            # Check if gate values changed significantly from initial
-            initial_gate = self.hp.get('insula_gate_init', 0.2) if hasattr(self, 'hp') else 0.2
-            mean_change = np.mean(final_gate_values) - initial_gate
-            report.append(f"  Mean change from initial ({initial_gate:.3f}): {mean_change:.3f}")
-        else:
-            report.append("No insula gate data available (no successful insula runs)")
-
-        report.append("")
-
-        # Enhanced Convergence Analysis
-        report.append("ENHANCED CONVERGENCE ANALYSIS")
-        report.append("-" * 32)
-
-        for network_type, conv_data in convergence_results.items():
-            if conv_data['successful_runs'] > 0:
-                report.append(f"{network_type.upper()}:")
-                report.append(f"  Successful runs: {conv_data['successful_runs']}")
-                report.append(f"  Avg training time: {conv_data['avg_training_time']:.1f}s")
-                report.append(f"  Avg training steps: {conv_data['avg_training_steps']:.0f}")
-
-                # Report convergence to different thresholds
-                for threshold_name, stats in conv_data['convergence_stats'].items():
-                    achieved = stats['achieved_count']
-                    total = conv_data['successful_runs']
-                    if achieved > 0:
-                        success_rate = achieved / total * 100
-                        avg_time = np.mean(stats['times'])
-                        avg_steps = np.mean(stats['steps'])
-                        report.append(f"    {threshold_name}: {success_rate:.1f}% achieved, avg {avg_time:.1f}s, {avg_steps:.0f} steps")
-                    else:
-                        report.append(f"    {threshold_name}: 0% achieved")
-                report.append("")
-
-        # Mean Accuracy Analysis
-        report.append("MEAN ACCURACY ANALYSIS (PRODUCTION TASK)")
-        report.append("-" * 38)
-
-        for network_type, stats in accuracy_stats.items():
-            report.append(f"{network_type.upper()}:")
-            report.append(f"  Mean final accuracy: {stats['mean_accuracy']:.3f} ± {stats['std_accuracy']:.3f}")
-            report.append(f"  Accuracy range: [{stats['min_accuracy']:.3f}, {stats['max_accuracy']:.3f}]")
-            report.append(f"  Mean timing error: {stats['mean_timing_error']:.3f} ± {stats['std_timing_error']:.3f}")
-            report.append(f"  Mean success probability: {stats['mean_success_prob']:.3f} ± {stats['std_success_prob']:.3f}")
-            report.append(f"  Based on {stats['num_runs']} successful runs")
-            report.append("")
-
-        # Eigenvalue Analysis Results
-        report.append("INDIVIDUAL RUNS EIGENVALUE & SPECTRAL RADIUS ANALYSIS")
-        report.append("-" * 55)
-
-        if eigenvalue_results:
-            for network_type, data in eigenvalue_results.items():
-                report.append(f"{network_type.upper()}:")
-                report.append(f"  Analyzed runs: {len(data['successful_runs'])}")
-                report.append(f"  Spectral radius: {data['mean_spectral_radius']:.4f} ± {data['std_spectral_radius']:.4f}")
-                report.append(f"  Spectral radius range: [{data['min_spectral_radius']:.4f}, {data['max_spectral_radius']:.4f}]")
-
-                if 'eigenvalue_statistics' in data:
-                    stats_list = data['eigenvalue_statistics']
-                    if stats_list:
-                        spectral_radii = [s['spectral_radius'] for s in stats_list]
-                        unstable_runs = sum(1 for sr in spectral_radii if sr > 1.1)
-                        report.append(f"  Potentially unstable runs: {unstable_runs}/{len(spectral_radii)}")
-                report.append("")
-        else:
-            report.append("No eigenvalue analysis available (no successful trainings)")
-            report.append("")
-
-        # Piezo Response Analysis (for reference) - only if piezo data exists
-        if piezo_data is not None:
-            report.append("PIEZO RESPONSE ANALYSIS (REFERENCE)")
-            report.append("-" * 35)
-            correlation = np.corrcoef(piezo_data['slice_means'], piezo_data['piezo_responses'])[0, 1]
-            report.append(f"Slice-Response Correlation: {correlation:.3f}")
-            report.append(f"Heart Rate: {piezo_data['heart_rate']:.0f} BPM")
-            report.append(f"R-Peaks per Task: {len(piezo_data['r_peaks'])}")
-            report.append(f"Cardiac Cycles per Max Interval: {piezo_data['cardiac_cycles_per_interval']:.1f}")
-            report.append("")
-        else:
-            report.append("PIEZO RESPONSE ANALYSIS (SKIPPED - INSULA-ONLY MODE)")
-            report.append("-" * 50)
-            report.append("Piezo analysis skipped for insula-only training.")
-            report.append("")
-
-        # Enhanced Insula Summary
-        report.append("ENHANCED INSULA SUMMARY")
-        report.append("-" * 24)
-
-        if 'insula' in accuracy_stats:
-            insula_acc = accuracy_stats['insula']['mean_accuracy']
-            report.append(f"Insula Performance:")
-            report.append(f"  Final accuracy: {insula_acc:.3f} ± {accuracy_stats['insula']['std_accuracy']:.3f}")
-            report.append(f"  Success rate: {total_successful / self.num_runs * 100:.1f}%")
-            report.append(f"  Average training time: {training_results['insula']['total_training_time'] / max(training_results['insula']['successful_runs'], 1):.1f}s")
-
-        report.append("")
-
-        # Save enhanced report
-        report_text = "\n".join(report)
-        with open(os.path.join(self.output_dir, 'enhanced_insula_analysis_report.txt'), 'w') as f:
-            f.write(report_text)
-
-        print("Enhanced insula analysis report saved!")
-
-        # Print summary to console
-        print(f"\nENHANCED INSULA ANALYSIS SUMMARY:")
-        print(f"   Overall success rate: {total_successful / self.num_runs * 100:.1f}%")
-        print(f"   Total training runs: {self.num_runs}")
-        if accuracy_stats:
-            for network_type, stats in accuracy_stats.items():
-                print(f"   {network_type.title()} mean accuracy: {stats['mean_accuracy']:.3f}")
-        print(f"   Eigenvalue analysis: {'Available' if eigenvalue_results else 'Not available'}")
-        if piezo_data is not None:
-            correlation = np.corrcoef(piezo_data['slice_means'], piezo_data['piezo_responses'])[0, 1]
-            print(f"   Piezo correlation: {correlation:.3f}")
-        else:
-            print(f"   Piezo correlation: N/A (insula-only mode)")
-        print(f"   Gate analysis: {'Available' if insula_gate_stats else 'Not available'}")
-        print(f"   Convergence analysis: {'Available' if convergence_results else 'Not available'}")
-        print(f"   Individual plots created: Available")
-        print(f"   Full enhanced report: {os.path.join(self.output_dir, 'enhanced_insula_analysis_report.txt')}")
-
 
 def main():
-    """Main function to run the enhanced production comparison analysis."""
-    parser = argparse.ArgumentParser(description='Enhanced Piezo vs Non-Piezo Network Comparison - Production Task')
+    """Main function to run the enhanced time bisection comparison analysis."""
+    parser = argparse.ArgumentParser(description='Enhanced Piezo vs Non-Piezo Network Comparison - Time Bisection Task')
     parser.add_argument('--full-training', action='store_true',
                         help='Run full training (2M samples) instead of quick test (500k)')
     parser.add_argument('--time-delay', action='store_true',
                         help='Enable time delay in piezo interface')
-    parser.add_argument('--output-dir', default='enhanced_piezo_production_results',
+    parser.add_argument('--output-dir', default='enhanced_piezo_time_bisection_results',
                         help='Output directory for results')
     parser.add_argument('--num-runs', type=int, default=10,
-                        help='Number of training runs per network type (default: 10)')
+                        help='Number of training runs per network type (default: 5)')
     parser.add_argument('--load-existing', action='store_true',
                         help='Load existing trained models (not implemented in enhanced version)')
     parser.add_argument('--insula-only', action='store_true',
@@ -2896,7 +2855,7 @@ def main():
         return
 
     # Create enhanced analyzer
-    analyzer = EnhancedPiezoProductionAnalyzer(
+    analyzer = EnhancedPiezoTimeBisectionAnalyzer(
         output_dir=args.output_dir,
         use_time_delay=args.time_delay,
         num_runs=args.num_runs

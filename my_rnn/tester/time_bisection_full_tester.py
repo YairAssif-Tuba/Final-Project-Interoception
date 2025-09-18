@@ -32,14 +32,14 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 from statsmodels.stats.multitest import multipletests
 
 # Add project imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
 
 from run import Runner
 import tools
 import task
 import default
 from real_cardiac_data import create_real_cardiac_data_for_task
-from interval_production_full_tester import ThreeWayStatisticalAnalyzer
+from .interval_production_full_tester import ThreeWayStatisticalAnalyzer
 
 
 class EnhancedTimeBisectionFullTester:

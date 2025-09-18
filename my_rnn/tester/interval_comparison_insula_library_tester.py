@@ -1,11 +1,11 @@
 """
-Interval Production Insula Library Comparison Tester
+Interval Comparison Insula Library Comparison Tester
 ====================================================
 
-Tests interval production insula models across different cardiac libraries
+Tests interval comparison insula models across different cardiac libraries
 to assess robustness and optimal cardiac data sources.
 
-Based on interval_production_library_tester.py but adapted for insula models.
+Based on interval_comparison_library_tester.py but adapted for insula models.
 """
 
 import os
@@ -20,7 +20,7 @@ from collections import defaultdict
 import pandas as pd
 
 # Add project imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
 
 from run import Runner
 import tools
@@ -29,12 +29,12 @@ import default
 from real_cardiac_data import create_real_cardiac_data_for_task
 
 
-class IntervalProductionInsulaLibraryTester:
-    """Test interval production insula models across different cardiac libraries"""
+class IntervalComparisonInsulaLibraryTester:
+    """Test interval comparison insula models across different cardiac libraries"""
 
-    def __init__(self, base_results_dir="interval_production_insula_library_results"):
+    def __init__(self, base_results_dir="interval_comparison_insula_library_results"):
         self.base_results_dir = base_results_dir
-        self.rule_name = 'interval_production'
+        self.rule_name = 'interval_comparison'
 
         # Define available cardiac libraries
         self.cardiac_libraries = {
@@ -52,16 +52,16 @@ class IntervalProductionInsulaLibraryTester:
 
         tools.mkdir_p(base_results_dir)
 
-        print(f"Interval Production Insula Library Tester initialized")
+        print(f"Interval Comparison Insula Library Tester initialized")
         print(f"Results directory: {self.base_results_dir}")
         print(f"Available cardiac libraries: {list(self.cardiac_libraries.keys())}")
 
     def get_test_conditions(self, num_conditions=10, use_dataset=True, include_ood=True):
-        """Get test conditions for interval production - dataset sampling or predefined"""
+        """Get test conditions for interval comparison - dataset sampling or predefined"""
 
         if use_dataset:
-            # Load from your existing dataset (consistent with other testers)
-            dataset_path = "enhanced_interval_datasets/interval_production_dataset.json"
+            # Load from interval comparison dataset
+            dataset_path = "enhanced_interval_datasets/interval_comparison_dataset.json"
 
             if os.path.exists(dataset_path):
                 with open(dataset_path, 'r') as f:
@@ -80,18 +80,30 @@ class IntervalProductionInsulaLibraryTester:
                 # Add OOD conditions if requested
                 if include_ood:
                     ood_conditions = [
-                        {'prod_interval': 2600, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                        {'prod_interval': 2500, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                        {'prod_interval': 2612, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                        {'prod_interval': 2625, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                        {'prod_interval': 2637, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                        {'prod_interval': 2650, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                        {'prod_interval': 2663, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                        {'prod_interval': 2675, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                        {'prod_interval': 2686, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                        {'prod_interval': 2700, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                        {'prod_interval': 2725, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                        {'prod_interval': 2750, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
+                        {'prod_interval1': 2600, 'prod_interval2': 1400, 'dly_interval': 1200, 'is_ood': True,
+                         'ood_type': 'above_range'},
+                        {'prod_interval1': 2500, 'prod_interval2': 1300, 'dly_interval': 1200, 'is_ood': True,
+                         'ood_type': 'above_range'},
+                        {'prod_interval1': 2700, 'prod_interval2': 1200, 'dly_interval': 1200, 'is_ood': True,
+                         'ood_type': 'above_range'},
+                        {'prod_interval1': 1300, 'prod_interval2': 2600, 'dly_interval': 1200, 'is_ood': True,
+                         'ood_type': 'above_range'},
+                        {'prod_interval1': 1400, 'prod_interval2': 2500, 'dly_interval': 1200, 'is_ood': True,
+                         'ood_type': 'above_range'},
+                        {'prod_interval1': 1200, 'prod_interval2': 2700, 'dly_interval': 1200, 'is_ood': True,
+                         'ood_type': 'above_range'},
+                        {'prod_interval1': 2650, 'prod_interval2': 2600, 'dly_interval': 1200, 'is_ood': True,
+                         'ood_type': 'above_range'},
+                        {'prod_interval1': 2750, 'prod_interval2': 2650, 'dly_interval': 1200, 'is_ood': True,
+                         'ood_type': 'above_range'},
+                        {'prod_interval1': 2800, 'prod_interval2': 1300, 'dly_interval': 1200, 'is_ood': True,
+                         'ood_type': 'above_range'},
+                        {'prod_interval1': 1300, 'prod_interval2': 2800, 'dly_interval': 1200, 'is_ood': True,
+                         'ood_type': 'above_range'},
+                        {'prod_interval1': 2900, 'prod_interval2': 2850, 'dly_interval': 1200, 'is_ood': True,
+                         'ood_type': 'above_range'},
+                        {'prod_interval1': 3000, 'prod_interval2': 1400, 'dly_interval': 1200, 'is_ood': True,
+                         'ood_type': 'above_range'},
                     ]
                     selected.extend(ood_conditions)
 
@@ -102,29 +114,41 @@ class IntervalProductionInsulaLibraryTester:
             else:
                 print(f"Dataset not found at {dataset_path}, falling back to predefined conditions")
 
-        # Fallback to predefined conditions (original behavior)
+        # Fallback to predefined conditions
         conditions = [
-            {'prod_interval': 1200, 'dly_interval': 1200},
-            {'prod_interval': 1600, 'dly_interval': 1200},
-            {'prod_interval': 2000, 'dly_interval': 1200},
-            {'prod_interval': 2400, 'dly_interval': 1200},
+            {'prod_interval1': 1200, 'prod_interval2': 1400, 'dly_interval': 1200},
+            {'prod_interval1': 1600, 'prod_interval2': 1800, 'dly_interval': 1200},
+            {'prod_interval1': 2000, 'prod_interval2': 1600, 'dly_interval': 1200},
+            {'prod_interval1': 2400, 'prod_interval2': 2000, 'dly_interval': 1200},
         ]
 
         # Add OOD conditions if requested
         if include_ood:
             conditions.extend([
-                {'prod_interval': 2600, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                {'prod_interval': 2500, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                {'prod_interval': 2612, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                {'prod_interval': 2625, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                {'prod_interval': 2637, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                {'prod_interval': 2650, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                {'prod_interval': 2663, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                {'prod_interval': 2675, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                {'prod_interval': 2686, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                {'prod_interval': 2700, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                {'prod_interval': 2725, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
-                {'prod_interval': 2750, 'dly_interval': 1200, 'is_ood': True, 'ood_type': 'above_range'},
+                {'prod_interval1': 2600, 'prod_interval2': 1400, 'dly_interval': 1200, 'is_ood': True,
+                 'ood_type': 'above_range'},
+                {'prod_interval1': 2500, 'prod_interval2': 1300, 'dly_interval': 1200, 'is_ood': True,
+                 'ood_type': 'above_range'},
+                {'prod_interval1': 2700, 'prod_interval2': 1200, 'dly_interval': 1200, 'is_ood': True,
+                 'ood_type': 'above_range'},
+                {'prod_interval1': 1300, 'prod_interval2': 2600, 'dly_interval': 1200, 'is_ood': True,
+                 'ood_type': 'above_range'},
+                {'prod_interval1': 1400, 'prod_interval2': 2500, 'dly_interval': 1200, 'is_ood': True,
+                 'ood_type': 'above_range'},
+                {'prod_interval1': 1200, 'prod_interval2': 2700, 'dly_interval': 1200, 'is_ood': True,
+                 'ood_type': 'above_range'},
+                {'prod_interval1': 2650, 'prod_interval2': 2600, 'dly_interval': 1200, 'is_ood': True,
+                 'ood_type': 'above_range'},
+                {'prod_interval1': 2750, 'prod_interval2': 2650, 'dly_interval': 1200, 'is_ood': True,
+                 'ood_type': 'above_range'},
+                {'prod_interval1': 2800, 'prod_interval2': 1300, 'dly_interval': 1200, 'is_ood': True,
+                 'ood_type': 'above_range'},
+                {'prod_interval1': 1300, 'prod_interval2': 2800, 'dly_interval': 1200, 'is_ood': True,
+                 'ood_type': 'above_range'},
+                {'prod_interval1': 2900, 'prod_interval2': 2850, 'dly_interval': 1200, 'is_ood': True,
+                 'ood_type': 'above_range'},
+                {'prod_interval1': 3000, 'prod_interval2': 1400, 'dly_interval': 1200, 'is_ood': True,
+                 'ood_type': 'above_range'},
             ])
 
         print(f"Using predefined conditions: {len(conditions)} total")
@@ -140,8 +164,8 @@ class IntervalProductionInsulaLibraryTester:
             return None
 
         # Use the same filtering logic as model discovery
-        if not self._is_insula_or_baseline_model(model_dir):
-            print(f"Model {model_dir} is not an insula or baseline model - skipping")
+        if not self._is_insula_model(model_dir):
+            print(f"Model {model_dir} is not an insula model - skipping")
             return None
 
         model_name = os.path.basename(model_dir)
@@ -152,7 +176,7 @@ class IntervalProductionInsulaLibraryTester:
         runner = Runner(
             rule_name=self.rule_name,
             model_dir=model_dir,
-            is_cuda=False,
+            is_cuda=True,
             noise_on=False
         )
 
@@ -166,11 +190,13 @@ class IntervalProductionInsulaLibraryTester:
 
         # Test each condition with the specified cardiac library
         for i, condition in enumerate(test_conditions):
-            print(f"    Condition {i + 1}/{len(test_conditions)}: prod={condition['prod_interval']}ms")
+            print(
+                f"    Condition {i + 1}/{len(test_conditions)}: I1={condition['prod_interval1']}ms, I2={condition['prod_interval2']}ms")
 
             try:
                 # Calculate task duration for this condition (needed for both insula and metadata)
-                task_duration_ms = condition['prod_interval'] + condition['dly_interval'] + 1000
+                task_duration_ms = condition['prod_interval1'] + condition['prod_interval2'] + condition[
+                    'dly_interval'] + 1000
                 
                 # Get model info to determine if this is an insula model
                 model_info = runner.get_model_info()
@@ -243,12 +269,12 @@ class IntervalProductionInsulaLibraryTester:
                 has_nan_cost = np.isnan(cost)
 
                 # Calculate performance
-                performance = self._calculate_interval_production_performance(trial, outputs)
+                performance = self._calculate_interval_comparison_performance(trial, outputs)
 
-                # Only mark as has_nan if the completion calculation itself failed
+                # Only mark as has_nan if the accuracy calculation itself failed
                 performance_has_critical_nan = False
-                if 'mean_completion' in performance:
-                    if np.isnan(performance['mean_completion']):
+                if 'accuracy' in performance:
+                    if np.isnan(performance['accuracy']):
                         performance_has_critical_nan = True
 
                 # Only mark as has_nan for truly critical failures
@@ -298,7 +324,7 @@ class IntervalProductionInsulaLibraryTester:
                 test_result = {
                     'condition_idx': i,
                     'condition': {k: v for k, v in condition.items() if k != 'hb_sequence'},
-                    'performance': {'mean_completion': np.nan, 'mean_timing_error': np.inf},
+                    'performance': {'accuracy': np.nan},
                     'cost': np.nan,
                     'has_nan': True,
                     'cardiac_library': cardiac_library,
@@ -319,35 +345,29 @@ class IntervalProductionInsulaLibraryTester:
         if not test_results:
             return {}
 
-        # Use the same filtering logic as interval_production_tester.py
+        # Use the same filtering logic as interval_comparison_tester.py
         # Don't filter by has_nan - only filter by actual NaN values in the metrics
-        completions = [r['performance']['mean_completion'] for r in test_results
-                       if 'mean_completion' in r['performance'] and not np.isnan(r['performance']['mean_completion'])]
-
-        timing_errors = [r['performance']['mean_timing_error'] for r in test_results
-                         if
-                         'mean_timing_error' in r['performance'] and np.isfinite(r['performance']['mean_timing_error'])]
+        accuracies = [r['performance']['accuracy'] for r in test_results
+                      if 'accuracy' in r['performance'] and not np.isnan(r['performance']['accuracy'])]
 
         costs = [r['cost'] for r in test_results if not np.isnan(r['cost']) and np.isfinite(r['cost'])]
 
         # Calculate summary with better error handling
         summary = {
             'num_conditions': len(test_results),
-            'num_valid': len(completions),
-            'nan_rate': (len(test_results) - len(completions)) / len(test_results) if test_results else 0,
-            'mean_completion': np.mean(completions) if completions else 0,
-            'std_completion': np.std(completions) if completions else 0,
-            'mean_timing_error': np.mean(timing_errors) if timing_errors else np.inf,
-            'std_timing_error': np.std(timing_errors) if timing_errors else 0,
+            'num_valid': len(accuracies),
+            'nan_rate': (len(test_results) - len(accuracies)) / len(test_results) if test_results else 0,
+            'mean_accuracy': np.mean(accuracies) if accuracies else 0,
+            'std_accuracy': np.std(accuracies) if accuracies else 0,
             'mean_cost': np.mean(costs) if costs else np.inf
         }
 
         # Debug output to see what's happening
-        print(f"    Summary: {len(completions)} valid completions out of {len(test_results)} conditions")
-        if completions:
-            print(f"    Mean completion: {summary['mean_completion']:.4f}")
+        print(f"    Summary: {len(accuracies)} valid accuracies out of {len(test_results)} conditions")
+        if accuracies:
+            print(f"    Mean accuracy: {summary['mean_accuracy']:.4f}")
         else:
-            print(f"    No valid completions found!")
+            print(f"    No valid accuracies found!")
 
         return summary
 
@@ -365,10 +385,8 @@ class IntervalProductionInsulaLibraryTester:
                     performance_data.append({
                         'model': model_name,
                         'library': lib_name,
-                        'mean_completion': lib_results['performance_summary']['mean_completion'],
-                        'std_completion': lib_results['performance_summary']['std_completion'],
-                        'mean_timing_error': lib_results['performance_summary']['mean_timing_error'],
-                        'std_timing_error': lib_results['performance_summary']['std_timing_error'],
+                        'mean_accuracy': lib_results['performance_summary']['mean_accuracy'],
+                        'std_accuracy': lib_results['performance_summary']['std_accuracy'],
                         'mean_cost': lib_results['performance_summary']['mean_cost'],
                         'nan_rate': lib_results['performance_summary']['nan_rate'],
                         'num_conditions': lib_results['performance_summary']['num_conditions'],
@@ -378,7 +396,7 @@ class IntervalProductionInsulaLibraryTester:
         df = pd.DataFrame(performance_data)
 
         with open(report_path, 'w') as f:
-            f.write("INTERVAL PRODUCTION INSULA CARDIAC LIBRARY COMPARISON REPORT\n")
+            f.write("INTERVAL COMPARISON INSULA CARDIAC LIBRARY COMPARISON REPORT\n")
             f.write("=" * 85 + "\n\n")
 
             # Executive Summary
@@ -388,38 +406,33 @@ class IntervalProductionInsulaLibraryTester:
             f.write(f"Cardiac Libraries: {len(self.cardiac_libraries)}\n")
             f.write(f"Total Comparisons: {len(performance_data)}\n")
             f.write(
-                f"Overall Mean Completion: {df['mean_completion'].mean():.4f} ± {df['mean_completion'].std():.4f}\n")
-            f.write(f"Performance Range: {df['mean_completion'].min():.4f} - {df['mean_completion'].max():.4f}\n")
+                f"Overall Mean Accuracy: {df['mean_accuracy'].mean():.4f} ± {df['mean_accuracy'].std():.4f}\n")
+            f.write(f"Accuracy Range: {df['mean_accuracy'].min():.4f} - {df['mean_accuracy'].max():.4f}\n")
 
             # Best and worst performing combinations
-            best_combo = df.loc[df['mean_completion'].idxmax()]
-            worst_combo = df.loc[df['mean_completion'].idxmin()]
+            best_combo = df.loc[df['mean_accuracy'].idxmax()]
+            worst_combo = df.loc[df['mean_accuracy'].idxmin()]
             f.write(
-                f"Best Combination: {best_combo['model']} + {best_combo['library']} ({best_combo['mean_completion']:.4f})\n")
+                f"Best Combination: {best_combo['model']} + {best_combo['library']} ({best_combo['mean_accuracy']:.4f})\n")
             f.write(
-                f"Worst Combination: {worst_combo['model']} + {worst_combo['library']} ({worst_combo['mean_completion']:.4f})\n\n")
+                f"Worst Combination: {worst_combo['model']} + {worst_combo['library']} ({worst_combo['mean_accuracy']:.4f})\n\n")
 
             # Library Rankings
             f.write("CARDIAC LIBRARY PERFORMANCE RANKINGS\n")
             f.write("-" * 45 + "\n")
-            library_stats = df.groupby('library').agg({
-                'mean_completion': ['mean', 'std', 'count'],
-                'mean_timing_error': 'mean',
-                'nan_rate': 'mean'
-            }).round(4)
 
-            library_means = df.groupby('library')['mean_completion'].mean().sort_values(ascending=False)
+            library_means = df.groupby('library')['mean_accuracy'].mean().sort_values(ascending=False)
 
-            f.write("Ranked by Mean Completion Ratio (Higher = Better):\n\n")
-            for rank, (lib_name, mean_completion) in enumerate(library_means.items(), 1):
+            f.write("Ranked by Mean Accuracy (Higher = Better):\n\n")
+            for rank, (lib_name, mean_accuracy) in enumerate(library_means.items(), 1):
                 lib_data = df[df['library'] == lib_name]
-                std_completion = lib_data['mean_completion'].std()
+                std_accuracy = lib_data['mean_accuracy'].std()
                 count = len(lib_data)
-                mean_error = lib_data['mean_timing_error'].mean()
+                mean_cost = lib_data['mean_cost'].mean()
                 nan_rate = lib_data['nan_rate'].mean()
 
-                f.write(f"{rank:2d}. {lib_name:15s} | Completion: {mean_completion:.4f} ± {std_completion:.4f} "
-                        f"| Error: {mean_error:.1f} | NaN Rate: {nan_rate:.1%} | n={count}\n")
+                f.write(f"{rank:2d}. {lib_name:15s} | Accuracy: {mean_accuracy:.4f} ± {std_accuracy:.4f} "
+                        f"| Cost: {mean_cost:.3f} | NaN Rate: {nan_rate:.1%} | n={count}\n")
 
             f.write(f"\nLibrary Effect Size (std of library means): {library_means.std():.4f}\n")
 
@@ -438,21 +451,21 @@ class IntervalProductionInsulaLibraryTester:
             f.write("INSULA MODEL CONSISTENCY ANALYSIS\n")
             f.write("-" * 40 + "\n")
             model_stats = df.groupby('model').agg({
-                'mean_completion': ['mean', 'std'],
+                'mean_accuracy': ['mean', 'std'],
                 'library': 'count'
             }).round(4)
 
             f.write("Insula models ranked by consistency (Lower Std = More Consistent across libraries):\n\n")
-            model_consistency = df.groupby('model')['mean_completion'].std().sort_values()
+            model_consistency = df.groupby('model')['mean_accuracy'].std().sort_values()
 
-            for rank, (model_name, std_completion) in enumerate(model_consistency.items(), 1):
+            for rank, (model_name, std_accuracy) in enumerate(model_consistency.items(), 1):
                 model_data = df[df['model'] == model_name]
-                mean_completion = model_data['mean_completion'].mean()
+                mean_accuracy = model_data['mean_accuracy'].mean()
                 count = len(model_data)
-                min_perf = model_data['mean_completion'].min()
-                max_perf = model_data['mean_completion'].max()
+                min_perf = model_data['mean_accuracy'].min()
+                max_perf = model_data['mean_accuracy'].max()
 
-                f.write(f"{rank:2d}. {model_name:20s} | Mean: {mean_completion:.4f} | Std: {std_completion:.4f} "
+                f.write(f"{rank:2d}. {model_name:20s} | Mean: {mean_accuracy:.4f} | Std: {std_accuracy:.4f} "
                         f"| Range: [{min_perf:.4f}, {max_perf:.4f}] | n={count}\n")
 
             f.write("\n")
@@ -469,19 +482,17 @@ class IntervalProductionInsulaLibraryTester:
                 f.write(f"\n{lib_name.upper()}:\n")
                 f.write(f"  Insula Models Tested: {len(lib_data)}\n")
                 f.write(
-                    f"  Mean Completion: {lib_data['mean_completion'].mean():.4f} ± {lib_data['mean_completion'].std():.4f}\n")
+                    f"  Mean Accuracy: {lib_data['mean_accuracy'].mean():.4f} ± {lib_data['mean_accuracy'].std():.4f}\n")
                 f.write(
-                    f"  Completion Range: [{lib_data['mean_completion'].min():.4f}, {lib_data['mean_completion'].max():.4f}]\n")
-                f.write(
-                    f"  Mean Timing Error: {lib_data['mean_timing_error'].mean():.1f} ± {lib_data['mean_timing_error'].std():.1f} steps\n")
+                    f"  Accuracy Range: [{lib_data['mean_accuracy'].min():.4f}, {lib_data['mean_accuracy'].max():.4f}]\n")
                 f.write(f"  Mean Cost: {lib_data['mean_cost'].mean():.4f}\n")
                 f.write(f"  Average NaN Rate: {lib_data['nan_rate'].mean():.1%}\n")
 
                 # Best and worst models for this library
-                best_model = lib_data.loc[lib_data['mean_completion'].idxmax()]
-                worst_model = lib_data.loc[lib_data['mean_completion'].idxmin()]
-                f.write(f"  Best Insula Model: {best_model['model']} ({best_model['mean_completion']:.4f})\n")
-                f.write(f"  Worst Insula Model: {worst_model['model']} ({worst_model['mean_completion']:.4f})\n")
+                best_model = lib_data.loc[lib_data['mean_accuracy'].idxmax()]
+                worst_model = lib_data.loc[lib_data['mean_accuracy'].idxmin()]
+                f.write(f"  Best Insula Model: {best_model['model']} ({best_model['mean_accuracy']:.4f})\n")
+                f.write(f"  Worst Insula Model: {worst_model['model']} ({worst_model['mean_accuracy']:.4f})\n")
 
             # Detailed Model Analysis
             f.write("\n\nDETAILED INSULA MODEL ANALYSIS\n")
@@ -493,28 +504,27 @@ class IntervalProductionInsulaLibraryTester:
                 f.write(f"\n{model_name.upper()}:\n")
                 f.write(f"  Libraries Tested: {len(model_data)}\n")
                 f.write(
-                    f"  Mean Completion: {model_data['mean_completion'].mean():.4f} ± {model_data['mean_completion'].std():.4f}\n")
+                    f"  Mean Accuracy: {model_data['mean_accuracy'].mean():.4f} ± {model_data['mean_accuracy'].std():.4f}\n")
                 f.write(
-                    f"  Completion Range: [{model_data['mean_completion'].min():.4f}, {model_data['mean_completion'].max():.4f}]\n")
-                f.write(
-                    f"  Mean Timing Error: {model_data['mean_timing_error'].mean():.1f} ± {model_data['mean_timing_error'].std():.1f} steps\n")
+                    f"  Accuracy Range: [{model_data['mean_accuracy'].min():.4f}, {model_data['mean_accuracy'].max():.4f}]\n")
+                f.write(f"  Mean Cost: {model_data['mean_cost'].mean():.4f}\n")
                 f.write(f"  Average NaN Rate: {model_data['nan_rate'].mean():.1%}\n")
 
                 # Best and worst libraries for this model
-                best_library = model_data.loc[model_data['mean_completion'].idxmax()]
-                worst_library = model_data.loc[model_data['mean_completion'].idxmin()]
-                f.write(f"  Best Library: {best_library['library']} ({best_library['mean_completion']:.4f})\n")
-                f.write(f"  Worst Library: {worst_library['library']} ({worst_library['mean_completion']:.4f})\n")
-                f.write(f"  Library Sensitivity: {model_data['mean_completion'].std():.4f} (lower = more robust)\n")
+                best_library = model_data.loc[model_data['mean_accuracy'].idxmax()]
+                worst_library = model_data.loc[model_data['mean_accuracy'].idxmin()]
+                f.write(f"  Best Library: {best_library['library']} ({best_library['mean_accuracy']:.4f})\n")
+                f.write(f"  Worst Library: {worst_library['library']} ({worst_library['mean_accuracy']:.4f})\n")
+                f.write(f"  Library Sensitivity: {model_data['mean_accuracy'].std():.4f} (lower = more robust)\n")
 
             # Statistical Analysis
             f.write("\n\nSTATISTICAL ANALYSIS\n")
             f.write("-" * 25 + "\n")
 
             # ANOVA-like analysis
-            total_variance = df['mean_completion'].var()
-            between_library_variance = df.groupby('library')['mean_completion'].mean().var()
-            between_model_variance = df.groupby('model')['mean_completion'].mean().var()
+            total_variance = df['mean_accuracy'].var()
+            between_library_variance = df.groupby('library')['mean_accuracy'].mean().var()
+            between_model_variance = df.groupby('model')['mean_accuracy'].mean().var()
 
             f.write(f"Total Performance Variance: {total_variance:.6f}\n")
             f.write(
@@ -524,33 +534,32 @@ class IntervalProductionInsulaLibraryTester:
 
             # Correlation analysis
             f.write(f"\nPerformance Correlations:\n")
-            f.write(f"  Completion vs Timing Error: {df['mean_completion'].corr(df['mean_timing_error']):.3f}\n")
-            f.write(f"  Completion vs Cost: {df['mean_completion'].corr(df['mean_cost']):.3f}\n")
-            f.write(f"  Completion vs NaN Rate: {df['mean_completion'].corr(df['nan_rate']):.3f}\n")
+            f.write(f"  Accuracy vs Cost: {df['mean_accuracy'].corr(df['mean_cost']):.3f}\n")
+            f.write(f"  Accuracy vs NaN Rate: {df['mean_accuracy'].corr(df['nan_rate']):.3f}\n")
 
             # Top and bottom performing combinations
             f.write(f"\n\nTOP 10 INSULA MODEL-LIBRARY COMBINATIONS\n")
             f.write("-" * 45 + "\n")
-            top_combinations = df.nlargest(10, 'mean_completion')
+            top_combinations = df.nlargest(10, 'mean_accuracy')
             for i, row in top_combinations.iterrows():
                 f.write(
-                    f"{row.name + 1:2d}. {row['model']:20s} + {row['library']:15s} | {row['mean_completion']:.4f}\n")
+                    f"{row.name + 1:2d}. {row['model']:20s} + {row['library']:15s} | {row['mean_accuracy']:.4f}\n")
 
             f.write(f"\n\nBOTTOM 10 INSULA MODEL-LIBRARY COMBINATIONS\n")
             f.write("-" * 47 + "\n")
-            bottom_combinations = df.nsmallest(10, 'mean_completion')
+            bottom_combinations = df.nsmallest(10, 'mean_accuracy')
             for i, row in bottom_combinations.iterrows():
                 f.write(
-                    f"{len(df) - row.name:2d}. {row['model']:20s} + {row['library']:15s} | {row['mean_completion']:.4f}\n")
+                    f"{len(df) - row.name:2d}. {row['model']:20s} + {row['library']:15s} | {row['mean_accuracy']:.4f}\n")
 
             # Recommendations
             f.write(f"\n\nRECOMMENDATIONS FOR INSULA MODELS\n")
             f.write("-" * 40 + "\n")
 
             best_overall_library = library_means.index[0]
-            most_consistent_library = df.groupby('library')['mean_completion'].std().idxmin()
+            most_consistent_library = df.groupby('library')['mean_accuracy'].std().idxmin()
             most_robust_model = model_consistency.index[0]
-            best_overall_model = df.groupby('model')['mean_completion'].mean().idxmax()
+            best_overall_model = df.groupby('model')['mean_accuracy'].mean().idxmax()
 
             f.write(f"1. BEST OVERALL LIBRARY FOR INSULA: {best_overall_library}\n")
             f.write(f"   Highest mean performance across all insula models\n\n")
@@ -577,8 +586,7 @@ class IntervalProductionInsulaLibraryTester:
             # Technical Notes
             f.write(f"TECHNICAL NOTES - INSULA MODELS\n")
             f.write("-" * 35 + "\n")
-            f.write(f"- Completion ratio: 1.0 = perfect timing, lower = worse timing\n")
-            f.write(f"- Timing error: Steps deviation from target interval\n")
+            f.write(f"- Accuracy: Proportion of correct interval comparisons\n")
             f.write(f"- NaN rate: Proportion of trials producing invalid outputs\n")
             f.write(f"- Library CV: Coefficient of variation of library means\n")
             f.write(f"- Model sensitivity: Standard deviation across libraries\n")
@@ -591,56 +599,33 @@ class IntervalProductionInsulaLibraryTester:
         print(f"Comprehensive insula library comparison report saved to: {report_path}")
         return report_path
 
-    def _calculate_interval_production_performance(self, trial, outputs):
-        """Calculate interval production performance metrics"""
+    def _calculate_interval_comparison_performance(self, trial, outputs):
+        """Calculate interval comparison performance metrics"""
 
         batch_size = outputs.shape[1]
 
-        # Find when model produces output (above threshold)
-        threshold = 0.5
-        response_errors = []
-        completions = []
+        # Get target choice: 1 if I1>I2, -1 if I2>=I1
+        interval1 = trial.prod_interval1 * 20  # Convert to ms
+        interval2 = trial.prod_interval2 * 20  # Convert to ms
+        target_choice = 2 * (interval1 > interval2) - 1
 
-        # Get go cue timing
-        if 'go' in trial.epochs:
-            go_start = trial.epochs['go'][0]
-            go_start = go_start[0] if hasattr(go_start, '__iter__') else go_start
-        else:
-            go_start = trial.epochs['go_cue'][1]  # End of go cue
-            go_start = go_start[0] if hasattr(go_start, '__iter__') else go_start
+        # Get final outputs (average of last 20 timesteps)
+        final_outputs = outputs[-20:, :, :].mean(axis=0)  # [B, 2]
 
-        target_steps = trial.prod_interval  # Expected interval in steps
+        # Convert to choice format: positive = choose I1, negative = choose I2
+        network_choice = final_outputs[:, 0] - final_outputs[:, 1]
 
-        if not hasattr(target_steps, '__iter__'):
-            target_steps = [target_steps] * batch_size
-
-        for b in range(batch_size):
-            output_trace = outputs[go_start:, b, 0]  # After go cue
-            response_idx = np.where(output_trace > threshold)[0]
-
-            if len(response_idx) > 0:
-                produced_steps = response_idx[0]  # steps after go cue
-                target = target_steps[b]  # target in steps
-                error_steps = abs(produced_steps - target)
-                ratio = produced_steps / target
-                symmetric_completion = 1 - abs(ratio - 1)  # % of completion
-
-                response_errors.append(error_steps)
-                completions.append(symmetric_completion)
-            else:
-                response_errors.append(np.inf)
-                completions.append(np.nan)
-
-        response_errors = np.array(response_errors)
-        target_steps = np.array(target_steps)
+        # Calculate accuracy
+        choice_correct = (network_choice * target_choice > 0)  # Both same sign = correct
+        accuracy = choice_correct.mean()
 
         return {
-            'mean_timing_error': float(np.mean(response_errors[np.isfinite(response_errors)])),
-            'timing_errors': response_errors.tolist(),
-            'target_intervals': target_steps.tolist(),
-            'completion_ratios': completions,
-            'mean_completion': float(np.nanmean(completions)),
-            'go_start_time': go_start
+            'accuracy': float(accuracy),
+            'network_choices': network_choice.tolist(),
+            'target_choices': [target_choice] * batch_size,  # Convert scalar to list
+            'choice_correct': choice_correct.tolist(),
+            'interval1_ms': interval1.tolist() if hasattr(interval1, 'tolist') else [interval1] * batch_size,
+            'interval2_ms': interval2.tolist() if hasattr(interval2, 'tolist') else [interval2] * batch_size
         }
 
     def test_model_across_libraries(self, model_dir, test_conditions=None):
@@ -668,7 +653,7 @@ class IntervalProductionInsulaLibraryTester:
             if library_result:
                 results['library_results'][library_name] = library_result
                 print(
-                    f"    Completed {library_name}: mean_completion = {library_result['performance_summary']['mean_completion']:.4f}")
+                    f"    Completed {library_name}: mean_accuracy = {library_result['performance_summary']['mean_accuracy']:.4f}")
             else:
                 print(f"    Failed {library_name}")
 
@@ -688,13 +673,11 @@ class IntervalProductionInsulaLibraryTester:
 
         # Extract performance metrics
         library_performances = {}
-        library_errors = {}
         library_costs = {}
 
         for lib_name, lib_results in valid_libraries.items():
             summary = lib_results['performance_summary']
-            library_performances[lib_name] = summary['mean_completion']
-            library_errors[lib_name] = summary['mean_timing_error']
+            library_performances[lib_name] = summary['mean_accuracy']
             library_costs[lib_name] = summary['mean_cost']
 
         # Calculate comparison statistics
@@ -702,11 +685,10 @@ class IntervalProductionInsulaLibraryTester:
 
         comparison = {
             'library_performances': library_performances,
-            'library_timing_errors': library_errors,
             'library_costs': library_costs,
-            'overall_mean_completion': np.mean(performances),
-            'overall_std_completion': np.std(performances),
-            'completion_range': max(performances) - min(performances),
+            'overall_mean_accuracy': np.mean(performances),
+            'overall_std_accuracy': np.std(performances),
+            'accuracy_range': max(performances) - min(performances),
             'best_library': max(library_performances.items(), key=lambda x: x[1])[0],
             'worst_library': min(library_performances.items(), key=lambda x: x[1])[0],
             'performance_coefficient_of_variation': np.std(performances) / np.mean(performances) if np.mean(
@@ -722,7 +704,7 @@ class IntervalProductionInsulaLibraryTester:
         # Get test conditions
         test_conditions = self.get_test_conditions(num_conditions, use_dataset, include_ood)
 
-        # Filter for insula models and baseline models (not piezo models)
+        # Filter for insula models only (not baseline or piezo models)
         valid_models = []
         for model_info in model_directories:
             if len(model_info) == 3:
@@ -731,11 +713,11 @@ class IntervalProductionInsulaLibraryTester:
                 model_dir, rule_name = model_info
                 run_name = os.path.basename(model_dir)
 
-            # Use the same filtering logic as the working insula tester
-            if self._is_insula_or_baseline_model(model_dir):
+            # Only include insula models since they're the only ones that use cardiac data
+            if self._is_insula_model(model_dir):
                 valid_models.append((model_dir, rule_name, run_name))
 
-        print(f"Found {len(valid_models)} insula and baseline models to test")
+        print(f"Found {len(valid_models)} insula models to test")
 
         all_results = []
 
@@ -782,8 +764,7 @@ class IntervalProductionInsulaLibraryTester:
                     performance_data.append({
                         'model': model_name,
                         'library': lib_name,
-                        'mean_completion': lib_results['performance_summary']['mean_completion'],
-                        'mean_timing_error': lib_results['performance_summary']['mean_timing_error'],
+                        'mean_accuracy': lib_results['performance_summary']['mean_accuracy'],
                         'mean_cost': lib_results['performance_summary']['mean_cost'],
                         'nan_rate': lib_results['performance_summary']['nan_rate']
                     })
@@ -797,15 +778,15 @@ class IntervalProductionInsulaLibraryTester:
                 'num_insula_models': len(all_results),
                 'num_libraries': len(self.cardiac_libraries),
                 'total_comparisons': len(performance_data),
-                'mean_completion_overall': df['mean_completion'].mean(),
-                'std_completion_overall': df['mean_completion'].std()
+                'mean_accuracy_overall': df['mean_accuracy'].mean(),
+                'std_accuracy_overall': df['mean_accuracy'].std()
             },
-            'library_rankings': df.groupby('library')['mean_completion'].agg(['mean', 'std', 'count']).to_dict(),
-            'model_consistency': df.groupby('model')['mean_completion'].agg(['mean', 'std', 'count']).to_dict(),
-            'library_effect_size': df.groupby('library')['mean_completion'].mean().std(),
-            'best_combinations': df.nlargest(5, 'mean_completion')[['model', 'library', 'mean_completion']].to_dict(
+            'library_rankings': df.groupby('library')['mean_accuracy'].agg(['mean', 'std', 'count']).to_dict(),
+            'model_consistency': df.groupby('model')['mean_accuracy'].agg(['mean', 'std', 'count']).to_dict(),
+            'library_effect_size': df.groupby('library')['mean_accuracy'].mean().std(),
+            'best_combinations': df.nlargest(5, 'mean_accuracy')[['model', 'library', 'mean_accuracy']].to_dict(
                 'records'),
-            'worst_combinations': df.nsmallest(5, 'mean_completion')[['model', 'library', 'mean_completion']].to_dict(
+            'worst_combinations': df.nsmallest(5, 'mean_accuracy')[['model', 'library', 'mean_accuracy']].to_dict(
                 'records')
         }
 
@@ -819,13 +800,13 @@ class IntervalProductionInsulaLibraryTester:
         print(f"Cross-insula-model analysis saved to: {analysis_path}")
 
         # Print summary
-        print(f"\nLIBRARY RANKINGS FOR INSULA MODELS (by mean completion):")
-        library_means = df.groupby('library')['mean_completion'].mean().sort_values(ascending=False)
+        print(f"\nLIBRARY RANKINGS FOR INSULA MODELS (by mean accuracy):")
+        library_means = df.groupby('library')['mean_accuracy'].mean().sort_values(ascending=False)
         for lib, perf in library_means.items():
             print(f"  {lib}: {perf:.4f}")
 
-        print(f"\nINSULA MODEL CONSISTENCY (by completion std - lower is more consistent):")
-        model_stds = df.groupby('model')['mean_completion'].std().sort_values()
+        print(f"\nINSULA MODEL CONSISTENCY (by accuracy std - lower is more consistent):")
+        model_stds = df.groupby('model')['mean_accuracy'].std().sort_values()
         for model, std in model_stds.items():
             print(f"  {model}: {std:.4f}")
 
@@ -835,7 +816,7 @@ class IntervalProductionInsulaLibraryTester:
         # Prepare data for plotting
         models = []
         libraries = []
-        completions = []
+        accuracies = []
 
         for result in all_results:
             model_name = result['model_name']
@@ -843,60 +824,60 @@ class IntervalProductionInsulaLibraryTester:
                 if lib_results and 'performance_summary' in lib_results:
                     models.append(model_name)
                     libraries.append(lib_name)
-                    completions.append(lib_results['performance_summary']['mean_completion'])
+                    accuracies.append(lib_results['performance_summary']['mean_accuracy'])
 
         # Create DataFrame for plotting
         df = pd.DataFrame({
             'Model': models,
             'Library': libraries,
-            'Completion': completions
+            'Accuracy': accuracies
         })
 
         # Create comparison plots
         fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-        fig.suptitle('Interval Production: Insula Model Cardiac Library Comparison', fontsize=16)
+        fig.suptitle('Interval Comparison: Insula Model Cardiac Library Comparison', fontsize=16)
 
         # Plot 1: Library performance boxplot
         ax1 = axes[0, 0]
         libraries_unique = df['Library'].unique()
-        library_data = [df[df['Library'] == lib]['Completion'].values for lib in libraries_unique]
+        library_data = [df[df['Library'] == lib]['Accuracy'].values for lib in libraries_unique]
         ax1.boxplot(library_data, labels=libraries_unique)
         ax1.set_title('Performance Distribution by Library\n(Insula Models)')
-        ax1.set_ylabel('Mean Completion Ratio')
+        ax1.set_ylabel('Mean Accuracy')
         ax1.tick_params(axis='x', rotation=45)
         ax1.grid(True, alpha=0.3)
 
         # Plot 2: Model consistency
         ax2 = axes[0, 1]
-        model_means = df.groupby('Model')['Completion'].mean()
-        model_stds = df.groupby('Model')['Completion'].std()
+        model_means = df.groupby('Model')['Accuracy'].mean()
+        model_stds = df.groupby('Model')['Accuracy'].std()
         ax2.scatter(model_means, model_stds, alpha=0.7, s=100, color='green')
-        ax2.set_xlabel('Mean Completion Ratio')
-        ax2.set_ylabel('Std Completion Ratio')
+        ax2.set_xlabel('Mean Accuracy')
+        ax2.set_ylabel('Std Accuracy')
         ax2.set_title('Insula Model Consistency\n(lower std = more consistent)')
         ax2.grid(True, alpha=0.3)
 
         # Plot 3: Heatmap of model x library performance
         ax3 = axes[1, 0]
-        pivot_data = df.pivot(index='Model', columns='Library', values='Completion')
+        pivot_data = df.pivot(index='Model', columns='Library', values='Accuracy')
         im = ax3.imshow(pivot_data.values, cmap='viridis', aspect='auto')
         ax3.set_xticks(range(len(pivot_data.columns)))
         ax3.set_xticklabels(pivot_data.columns, rotation=45)
         ax3.set_yticks(range(len(pivot_data.index)))
         ax3.set_yticklabels(pivot_data.index)
         ax3.set_title('Insula Model × Library Performance Heatmap')
-        plt.colorbar(im, ax=ax3, label='Mean Completion Ratio')
+        plt.colorbar(im, ax=ax3, label='Mean Accuracy')
 
         # Plot 4: Library effect size
         ax4 = axes[1, 1]
-        library_means = df.groupby('Library')['Completion'].mean().sort_values(ascending=False)
-        library_stds = df.groupby('Library')['Completion'].std().reindex(library_means.index)
+        library_means = df.groupby('Library')['Accuracy'].mean().sort_values(ascending=False)
+        library_stds = df.groupby('Library')['Accuracy'].std().reindex(library_means.index)
         x_pos = range(len(library_means))
         ax4.bar(x_pos, library_means.values, yerr=library_stds.values,
                 capsize=5, alpha=0.7, color='lightgreen', edgecolor='darkgreen')
         ax4.set_xticks(x_pos)
         ax4.set_xticklabels(library_means.index, rotation=45)
-        ax4.set_ylabel('Mean Completion Ratio')
+        ax4.set_ylabel('Mean Accuracy')
         ax4.set_title('Library Performance Ranking\n(Insula Models)')
         ax4.grid(True, alpha=0.3)
 
@@ -925,22 +906,22 @@ class IntervalProductionInsulaLibraryTester:
             return obj
 
     def discover_insula_models(self):
-        """Discover trained interval production insula models"""
+        """Discover trained interval comparison insula models"""
         model_dirs = []
 
         possible_base_dirs = [
-            'enhanced_insula_production_results',
-            'insula_production_results',
-            'enhanced_piezo_production_results',  # Keep for backwards compatibility
-            'production_results',
-            'interval_production_results',
-            'model/interval_production',
+            'enhanced_insula_comparison_results',
+            'insula_comparison_results',
+            'enhanced_piezo_comparison_results',  # Keep for backwards compatibility
+            'comparison_results',
+            'interval_comparison_results',
+            'model/interval_comparison',
         ]
 
         for base_dir in possible_base_dirs:
             if os.path.exists(base_dir):
                 print(f"Searching in {base_dir}...")
-                self._search_model_subdirs(base_dir, 'interval_production', model_dirs)
+                self._search_model_subdirs(base_dir, 'interval_comparison', model_dirs)
 
         return model_dirs
 
@@ -954,18 +935,19 @@ class IntervalProductionInsulaLibraryTester:
                     # Ignore pure piezo models (piezo_run_* without insula)
                     if ('insula_run_' in item or 'no_piezo_run_' in item or 
                         'no_insula' in item or 'baseline_run_' in item):
-                        # Find the best checkpoint in this run directory
+                        # Check if this run directory has valid checkpoints
                         best_model_path = self._find_best_model_checkpoint(item_path)
                         if best_model_path:
-                            # Verify this is actually an insula or baseline model by checking hp.json
-                            if self._is_insula_or_baseline_model(best_model_path):
-                                model_dirs.append((best_model_path, rule_name, item))
+                            # Verify this is actually an insula model by checking hp.json
+                            if self._is_insula_model(best_model_path):
+                                # Store the BASE model directory, not the specific checkpoint
+                                model_dirs.append((item_path, rule_name, item))
                                 print(f"  Found model: {item}")
                             else:
-                                print(f"  Skipped non-insula/non-baseline model: {item}")
+                                print(f"  Skipped non-insula model: {item}")
                     elif self._has_valid_model(item_path):
-                        # This directory itself contains a model - check if it's insula/baseline
-                        if self._is_insula_or_baseline_model(item_path):
+                        # This directory itself contains a model - check if it's insula
+                        if self._is_insula_model(item_path):
                             model_dirs.append((item_path, rule_name, item))
                             print(f"  Found model: {item}")
         except PermissionError:
@@ -973,9 +955,9 @@ class IntervalProductionInsulaLibraryTester:
         except Exception as e:
             print(f"Error searching {base_dir}: {e}")
 
-    def _find_best_model_checkpoint(self, base_model_dir, use_best_cost=True):
-        """Find the best model checkpoint in a run directory"""
-        # Priority order: finalResult > best cost checkpoint > highest numbered checkpoint > main directory
+    def _find_best_model_checkpoint(self, base_model_dir, use_best_timing_error=True):
+        """Find the best model checkpoint in a run directory based on timing error"""
+        # Priority order: finalResult > best timing error checkpoint > highest numbered checkpoint > main directory
         final_path = os.path.join(base_model_dir, 'finalResult')
         if os.path.exists(final_path) and self._has_valid_model(final_path):
             return final_path
@@ -989,9 +971,9 @@ class IntervalProductionInsulaLibraryTester:
                     if os.path.isdir(checkpoint_path) and self._has_valid_model(checkpoint_path):
                         numbered_checkpoints.append((int(item), checkpoint_path))
 
-        if numbered_checkpoints and use_best_cost:
-            # Try to find the best checkpoint based on cost from log.json
-            best_checkpoint = self._find_best_cost_checkpoint(base_model_dir, numbered_checkpoints)
+        if numbered_checkpoints and use_best_timing_error:
+            # Try to find the best checkpoint based on timing error from individual checkpoint logs
+            best_checkpoint = self._find_best_timing_error_checkpoint(base_model_dir, numbered_checkpoints)
             if best_checkpoint:
                 return best_checkpoint
 
@@ -1006,68 +988,70 @@ class IntervalProductionInsulaLibraryTester:
 
         return None
 
-    def _is_insula_or_baseline_model(self, model_path):
-        """Check if a model is an insula model or baseline model (not piezo)"""
+    def _is_insula_model(self, model_path):
+        """Check if a model is an insula model (only insula models use cardiac data)"""
         hp_path = os.path.join(model_path, 'hp.json')
         try:
             with open(hp_path, 'r') as f:
                 hp = json.load(f)
             
             use_insula = hp.get('use_insula', False)
-            use_piezo = hp.get('use_piezo', False)
             
-            # Include insula models or baseline models (no piezo, no insula)
-            if use_insula:
-                return True  # Insula model
-            elif not use_piezo and not use_insula:
-                return True  # Baseline model
-            else:
-                return False  # Piezo model or other - ignore
+            # Only include insula models - baseline models don't use cardiac data
+            return use_insula
                 
         except Exception as e:
             print(f"  Warning: Could not read hp.json from {model_path}: {e}")
             return False
 
-    def _find_best_cost_checkpoint(self, base_model_dir, numbered_checkpoints):
-        """Find checkpoint with lowest cost based on log.json"""
+    def _find_best_timing_error_checkpoint(self, base_model_dir, numbered_checkpoints):
+        """Find checkpoint with lowest timing error based on individual checkpoint log.json files"""
         try:
-            log_path = os.path.join(base_model_dir, 'log.json')
-            if not os.path.exists(log_path):
-                return None
+            min_timing_error = float('inf')
+            best_checkpoint_path = None
+            best_checkpoint_num = -1
+            
+            # Check each numbered checkpoint's individual log.json file
+            for checkpoint_num, checkpoint_path in numbered_checkpoints:
+                checkpoint_log_path = os.path.join(checkpoint_path, 'log.json')
                 
-            with open(log_path, 'r') as f:
-                log_data = json.load(f)
+                if not os.path.exists(checkpoint_log_path):
+                    continue
+                
+                try:
+                    with open(checkpoint_log_path, 'r') as f:
+                        checkpoint_log = json.load(f)
+                    
+                    # Look for appropriate metric for interval comparison tasks
+                    timing_error = None
+                    if 'mean_choice_error' in checkpoint_log:
+                        # For comparison tasks, use choice error (lower is better)
+                        timing_error = checkpoint_log['mean_choice_error']
+                    elif 'cost' in checkpoint_log:
+                        # Fallback to cost (lower is better)
+                        timing_error = checkpoint_log['cost']
+                    elif 'mean_rel_action_time' in checkpoint_log:
+                        # For production tasks
+                        timing_error = checkpoint_log['mean_rel_action_time']
+                    
+                    if timing_error is not None and np.isfinite(timing_error) and timing_error < min_timing_error:
+                        min_timing_error = timing_error
+                        best_checkpoint_path = checkpoint_path
+                        best_checkpoint_num = checkpoint_num
+                        
+                except Exception as e:
+                    print(f"    Warning: Could not read {checkpoint_log_path}: {e}")
+                    continue
             
-            if 'cost_' not in log_data or 'trials' not in log_data:
+            if best_checkpoint_path:
+                print(f"  Selected best timing error checkpoint: {best_checkpoint_num} (timing error: {min_timing_error:.6f})")
+                return best_checkpoint_path
+            else:
+                print(f"  Warning: No timing error data found in checkpoint logs")
                 return None
-            
-            costs = log_data['cost_']
-            trials = log_data['trials']
-            
-            if len(costs) != len(trials):
-                return None
-            
-            # Find the checkpoint with minimum cost (excluding the first trial which is often very high)
-            min_cost = float('inf')
-            best_checkpoint_idx = -1
-            
-            for i, (trial, cost) in enumerate(zip(trials, costs)):
-                if i > 0 and cost < min_cost:  # Skip first trial
-                    min_cost = cost
-                    best_checkpoint_idx = i
-            
-            if best_checkpoint_idx > 0:
-                # Map trial index to checkpoint number
-                checkpoint_num = best_checkpoint_idx
-                for checkpoint_int, checkpoint_path in numbered_checkpoints:
-                    if checkpoint_int == checkpoint_num:
-                        print(f"  Selected best cost checkpoint: {checkpoint_num} (cost: {min_cost:.6f})")
-                        return checkpoint_path
-            
-            return None
             
         except Exception as e:
-            print(f"  Warning: Could not determine best checkpoint from log: {e}")
+            print(f"  Warning: Could not determine best checkpoint from timing error: {e}")
             return None
 
     def _has_valid_model(self, model_path):
@@ -1081,16 +1065,16 @@ def main():
     """Run the insula cardiac library comparison test"""
 
     # Initialize the tester
-    tester = IntervalProductionInsulaLibraryTester()
+    tester = IntervalComparisonInsulaLibraryTester()
 
-    # Discover interval production insula models
+    # Discover interval comparison insula models
     model_directories = tester.discover_insula_models()
 
     if not model_directories:
-        print("No interval production insula models found!")
+        print("No interval comparison insula models found!")
         return
 
-    print(f"Found {len(model_directories)} interval production insula models")
+    print(f"Found {len(model_directories)} interval comparison insula models")
 
     # Run the comparison across libraries
     results = tester.test_multiple_models_across_libraries(model_directories)

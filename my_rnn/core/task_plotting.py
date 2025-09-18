@@ -24,7 +24,7 @@ import json
 from typing import List, Tuple, Dict, Optional, Union
 
 # Add project root to Python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import train
 import default

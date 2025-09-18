@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import math
-from Piezo4 import PiezoInterface
+from simple_piezo import SimplePiezoInterface as PiezoInterface
 
 def generate_dummy_input_vector(phi, num_harmonics=5):
     # Harmonic basis: [cos(2πkφ), sin(2πkφ)] for k = 1..num_harmonics
