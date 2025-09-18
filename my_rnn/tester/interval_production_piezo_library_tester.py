@@ -19,12 +19,14 @@ import pandas as pd
 
 # Add project imports
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 
 from run import Runner
 import tools
 import task
 import default
 from real_cardiac_data import create_real_cardiac_data_for_task
+from config import CARDIAC_LIBRARIES
 
 
 class IntervalProductionCardiacLibraryTester:
@@ -35,18 +37,7 @@ class IntervalProductionCardiacLibraryTester:
         self.rule_name = 'interval_production'
 
         # Define available cardiac libraries
-        self.cardiac_libraries = {
-            "hr60_hrv0cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr60_hrv0cal",
-            "hr60_hrv1cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr60_hrv1cal",
-            "hr60_hrv3cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr60_hrv3cal",
-            "hr90_hrv0cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr90_hrv0cal",
-            "hr90_hrv1cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr90_hrv1cal",
-            "hr90_hrv3cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr90_hrv3cal",
-            "hr100_hrv0cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr100_hrv0cal",
-            "hr100_hrv1cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr100_hrv1cal",
-            "hr100_hrv3cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr100_hrv3cal",
-            # Add more libraries as needed
-        }
+        self.cardiac_libraries = CARDIAC_LIBRARIES
 
         tools.mkdir_p(base_results_dir)
 
@@ -181,6 +172,7 @@ class IntervalProductionCardiacLibraryTester:
                 try:
                     # Import the function to patch it
                     from real_cardiac_data import create_real_cardiac_data_for_task
+                    from config import CARDIAC_LIBRARIES
 
                     # Store original function
                     original_create_real_cardiac_data = create_real_cardiac_data_for_task

@@ -6,6 +6,9 @@ import numpy as np
 import math
 import os
 import json
+import sys
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..','..'))
+from config import get_dataset_path
 
 
 class DatasetLoader:
@@ -44,13 +47,9 @@ _dataset_loaders = {}
 
 def get_dataset_loader(task_name):
     if task_name not in _dataset_loaders:
-        dataset_paths = {
-            'interval_comparison': "enhanced_interval_datasets/interval_comparison_dataset.json",
-            'interval_production': "enhanced_interval_datasets/interval_production_dataset.json",
-            'time_bisection': "enhanced_interval_datasets/time_bisection_dataset.json"
-        }
-        if task_name in dataset_paths:
-            _dataset_loaders[task_name] = DatasetLoader(dataset_paths[task_name])
+        dataset_path = get_dataset_path(task_name)
+        if dataset_path and os.path.exists(dataset_path):
+            _dataset_loaders[task_name] = DatasetLoader(str(dataset_path))
         else:
             _dataset_loaders[task_name] = None
     return _dataset_loaders[task_name]

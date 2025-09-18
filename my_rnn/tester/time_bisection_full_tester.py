@@ -33,6 +33,7 @@ from statsmodels.stats.multitest import multipletests
 
 # Add project imports
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 
 from run import Runner
 import tools
@@ -40,6 +41,7 @@ import task
 import default
 from real_cardiac_data import create_real_cardiac_data_for_task
 from .interval_production_full_tester import ThreeWayStatisticalAnalyzer
+from config import get_results_path, get_dataset_path
 
 
 class EnhancedTimeBisectionFullTester:
@@ -47,7 +49,7 @@ class EnhancedTimeBisectionFullTester:
 
     def __init__(self, base_results_dir="time_bisection_full_results"):
         self.base_results_dir = base_results_dir
-        self.dataset_path = "enhanced_interval_datasets/time_bisection_dataset.json"
+        self.dataset_path = get_dataset_path("time_bisection")
         
         # Load best cardiac libraries for both piezo and insula models
         self.best_piezo_library = self._load_best_piezo_library()
@@ -66,7 +68,7 @@ class EnhancedTimeBisectionFullTester:
 
     def _load_best_piezo_library(self):
         """Load the best performing cardiac library for piezo models"""
-        library_results_path = "time_bisection_cardiac_library_results/cross_model_library_analysis.json"
+        library_results_path = str(get_results_path("time_bisection_piezo", "cross_model_library_analysis.json"))
         
         try:
             with open(library_results_path, 'r') as f:
@@ -88,7 +90,7 @@ class EnhancedTimeBisectionFullTester:
 
     def _load_best_insula_library(self):
         """Load the best performing cardiac library for insula models"""
-        library_results_path = "time_bisection_insula_cardiac_library_results/cross_model_library_analysis.json"
+        library_results_path = str(get_results_path("time_bisection_insula", "cross_model_library_analysis.json"))
         
         try:
             with open(library_results_path, 'r') as f:
@@ -110,7 +112,7 @@ class EnhancedTimeBisectionFullTester:
 
     def _load_test_dataset(self):
         """Load test conditions from the time bisection dataset."""
-        if not os.path.exists(self.dataset_path):
+        if not self.dataset_path or not os.path.exists(self.dataset_path):
             print(f"Dataset not found: {self.dataset_path}")
             print("Creating fallback test conditions...")
             fallback_conditions = []
@@ -127,7 +129,7 @@ class EnhancedTimeBisectionFullTester:
                             })
             return fallback_conditions
 
-        with open(self.dataset_path, 'r') as f:
+        with open(str(self.dataset_path), 'r') as f:
             dataset = json.load(f)
 
         test_data = dataset.get('test', [])

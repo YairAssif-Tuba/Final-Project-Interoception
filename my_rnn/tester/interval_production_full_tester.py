@@ -30,9 +30,11 @@ from scipy import stats
 from scipy.stats import f_oneway, kruskal, shapiro, levene, mannwhitneyu
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 from statsmodels.stats.multitest import multipletests
+from config import get_dataset_path
 
 # Add project imports
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 
 from run import Runner
 import tools
@@ -442,7 +444,7 @@ class EnhancedIntervalProductionFullTester:
 
     def __init__(self, base_results_dir="interval_production_full_results"):
         self.base_results_dir = base_results_dir
-        self.dataset_path = "enhanced_interval_datasets/interval_production_dataset.json"
+        self.dataset_path = get_dataset_path("interval_production")
         
         # Load best cardiac libraries for both piezo and insula models
         self.best_piezo_library = self._load_best_piezo_library()
@@ -505,7 +507,7 @@ class EnhancedIntervalProductionFullTester:
 
     def _load_test_dataset(self):
         """Load test conditions from the interval production dataset."""
-        if not os.path.exists(self.dataset_path):
+        if not self.dataset_path or not os.path.exists(self.dataset_path):
             print(f"Dataset not found: {self.dataset_path}")
             print("Creating fallback test conditions...")
             fallback_conditions = []
@@ -518,7 +520,7 @@ class EnhancedIntervalProductionFullTester:
                     })
             return fallback_conditions
 
-        with open(self.dataset_path, 'r') as f:
+        with open(str(self.dataset_path), 'r') as f:
             dataset = json.load(f)
 
         test_data = dataset.get('test', [])

@@ -33,12 +33,14 @@ from statsmodels.stats.multitest import multipletests
 
 # Add project imports
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 
 from run import Runner
 import tools
 import task
 import default
 from .interval_production_full_tester import ThreeWayStatisticalAnalyzer
+from config import get_dataset_path
 
 
 class EnhancedIntervalComparisonFullTester:
@@ -46,7 +48,7 @@ class EnhancedIntervalComparisonFullTester:
 
     def __init__(self, base_results_dir="interval_comparison_full_results"):
         self.base_results_dir = base_results_dir
-        self.dataset_path = "enhanced_interval_datasets/interval_comparison_dataset.json"
+        self.dataset_path = get_dataset_path("interval_comparison")
         
         # Load best cardiac libraries for both piezo and insula models
         self.best_piezo_library = self._load_best_piezo_library()
@@ -109,7 +111,7 @@ class EnhancedIntervalComparisonFullTester:
 
     def _load_test_dataset(self):
         """Load test conditions from the interval comparison dataset."""
-        if not os.path.exists(self.dataset_path):
+        if not self.dataset_path or not os.path.exists(self.dataset_path):
             print(f"Dataset not found: {self.dataset_path}")
             print("Creating fallback test conditions...")
             fallback_conditions = []
@@ -124,7 +126,7 @@ class EnhancedIntervalComparisonFullTester:
                             })
             return fallback_conditions
 
-        with open(self.dataset_path, 'r') as f:
+        with open(str(self.dataset_path), 'r') as f:
             dataset = json.load(f)
 
         test_data = dataset.get('test', [])

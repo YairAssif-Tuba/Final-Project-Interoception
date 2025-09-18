@@ -10,6 +10,9 @@ import numpy as np
 import json
 import os
 import argparse
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+from config import PATHS
 
 
 class EnhancedIntervalDatasetGenerator:
@@ -186,12 +189,16 @@ class EnhancedIntervalDatasetGenerator:
         }
 
 
-def generate_all_enhanced_datasets(output_dir="enhanced_interval_datasets",
+def generate_all_enhanced_datasets(output_dir=None,
                                  num_batches=4000,
                                  batch_size=64,
                                  test_split=0.3,
                                  seed=42):
     """Generate all enhanced interval timing datasets."""
+    
+    # Use configuration path if not specified
+    if output_dir is None:
+        output_dir = PATHS["ENHANCED_DATASETS_DIR"]
 
     os.makedirs(output_dir, exist_ok=True)
     generator = EnhancedIntervalDatasetGenerator(seed=seed)

@@ -34,6 +34,7 @@ import tools
 from cardiac_data import generate_simple_cardiac_pressure, create_sparse_hb_sequence
 from simple_piezo import SimplePiezoInterface
 import json
+from config import get_model_path, get_dataset_path, PATHS
 
 
 class DatasetLoader:
@@ -84,13 +85,15 @@ class EnhancedPiezoProductionAnalyzer:
         print(f"Training runs per network type: {self.num_runs}")
         print(f"Enhanced intervals: {self.enhanced_intervals['min_interval']}-{self.enhanced_intervals['max_interval']}ms")
         print(f"Time delay: {'ENABLED' if use_time_delay else 'DISABLED'}")
-        #dataset_path = "enhanced_interval_datasets/interval_production_dataset.json"
-        #if os.path.exists(dataset_path):
-            #self.dataset_loader = DatasetLoader(dataset_path)
-            #self.using_dataset = True
-        #else:
-            #self.dataset_loader = None
-            #self.using_dataset = False
+        dataset_path = get_dataset_path("interval_production")
+        if dataset_path and os.path.exists(dataset_path):
+            self.dataset_loader = DatasetLoader(str(dataset_path))
+            self.using_dataset = True
+            print(f"✅ Using pre-generated dataset: {dataset_path}")
+        else:
+            self.dataset_loader = None
+            self.using_dataset = False
+            print("📝 No dataset found, using dynamic parameter generation")
 
     def create_enhanced_hp(self, use_piezo=False, use_insula=False):
         """MODIFIED: Use interval_production instead of interval_comparison, support insula"""
@@ -405,7 +408,7 @@ class EnhancedPiezoProductionAnalyzer:
         for run_idx in range(self.num_runs):
             print(f"\nNon-Piezo Run {run_idx + 1}/{self.num_runs}")
 
-            model_dir = os.path.join(self.output_dir, f"no_piezo_run_{run_idx + 1}")
+            model_dir = get_model_path("interval_production", f"standard_run_{run_idx + 1}", 0)
             start_time = time.time()
 
             stat, trainer = self._train_with_enhanced_tracking(
@@ -444,7 +447,7 @@ class EnhancedPiezoProductionAnalyzer:
         for run_idx in range(self.num_runs):
             print(f"\nPiezo Run {run_idx + 1}/{self.num_runs}")
 
-            model_dir = os.path.join(self.output_dir, f"piezo_run_{run_idx + 1}")
+            model_dir = get_model_path("interval_production", f"piezo_run_{run_idx + 1}", 0)
             start_time = time.time()
 
             stat, trainer = self._train_with_enhanced_tracking(
@@ -511,7 +514,7 @@ class EnhancedPiezoProductionAnalyzer:
         for run_idx in range(self.num_runs):
             print(f"\nInsula Run {run_idx + 1}/{self.num_runs}")
 
-            model_dir = os.path.join(self.output_dir, f"insula_run_{run_idx + 1}")
+            model_dir = get_model_path("interval_production", f"insula_run_{run_idx + 1}", 0)
             start_time = time.time()
 
             stat, trainer = self._train_with_enhanced_tracking(

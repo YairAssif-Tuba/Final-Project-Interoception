@@ -39,20 +39,17 @@ class RealCardiacDataLoader:
             data_path: Specific path to directory containing cardiac CSV files
             library_name: Name of the cardiac library to use
         """
-        # Define available cardiac libraries
-        self.cardiac_libraries = {
-            "hr60_hrv0cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr60_hrv0cal",
-            "hr60_hrv1cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr60_hrv1cal",
-            "hr60_hrv3cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr60_hrv3cal",
-            "hr90_hrv0cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr90_hrv0cal",
-            "hr90_hrv1cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr90_hrv1cal",
-            "hr90_hrv3cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr90_hrv3cal",
-            "hr100_hrv0cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr100_hrv0cal",
-            "hr100_hrv1cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr100_hrv1cal",
-            "hr100_hrv3cal": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/hr100_hrv3cal",
-            "test": "/storage/pblab_shared_code/PYTHON/prj_interoception_modeling_danielle/piezo-wt/ecg_libraries_hr_cal_csv_split/test",
-            # Add your other libraries here
-        }
+        # Import configuration and load cardiac libraries
+        import sys
+        import os
+        sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+        from config import CARDIAC_LIBRARIES
+        
+        # Define available cardiac libraries from configuration
+        self.cardiac_libraries = CARDIAC_LIBRARIES.copy()
+        # Add test library path from ECG split directory
+        test_path = os.path.join(os.path.dirname(os.path.dirname(list(CARDIAC_LIBRARIES.values())[0])), "ecg_libraries_hr_cal_split", "test")
+        self.cardiac_libraries["test"] = test_path
 
         if data_path is not None:
             self.data_path = data_path

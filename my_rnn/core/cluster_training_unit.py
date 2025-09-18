@@ -9,6 +9,9 @@ import train
 import default
 import os
 import shutil
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+from config import get_cluster_model_path
 
 
 def train_model(rule_name, w2_reg, r2_reg, index, use_piezo=False, use_insula=False, **kwargs):
@@ -22,18 +25,14 @@ def train_model(rule_name, w2_reg, r2_reg, index, use_piezo=False, use_insula=Fa
         use_piezo: Whether to enable piezo interface
         **kwargs: Additional training arguments
     """
-    serial_idx = os.path.join(f'w2_{w2_reg}_r2_{r2_reg}', f'model_{index}')
+    # Use configuration to get cluster model path
+    local_folder_name = get_cluster_model_path(rule_name, w2_reg, r2_reg, index)
 
-    # Build the correct absolute model path
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(script_dir, "../.."))
-    local_folder_name = os.path.join(project_root, "model", rule_name, serial_idx)
-
-    # Add piezo suffix to directory name if enabled
+    # Add suffix to directory name if enabled
     if use_piezo:
-        local_folder_name += "_piezo"
+        local_folder_name = str(local_folder_name) + "_piezo"
     if use_insula:
-        local_folder_name += "_insula"
+        local_folder_name = str(local_folder_name) + "_insula"
 
     # Keep attempting to train until successful
     while True:

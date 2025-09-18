@@ -37,6 +37,7 @@ import tools
 from cardiac_data import generate_simple_cardiac_pressure, create_sparse_hb_sequence
 from simple_piezo import SimplePiezoInterface
 import json
+from config import get_model_path, get_dataset_path, PATHS
 
 class DatasetLoader:
     def __init__(self, dataset_path):
@@ -87,14 +88,15 @@ class EnhancedPiezoComparisonAnalyzer:
         print(f"⏱️ Enhanced intervals: {self.enhanced_intervals['min_interval']}-{self.enhanced_intervals['max_interval']}ms")
         print(f"🕰️ Time delay: {'✅ ENABLED' if use_time_delay else '❌ DISABLED'}")
         # ADD THIS:
-        #dataset_path = "enhanced_interval_datasets/interval_comparison_dataset.json"
-        #if os.path.exists(dataset_path):
-            #self.dataset_loader = DatasetLoader(dataset_path)
-            #self.using_dataset = True
-            #print(f"USING PRE-GENERATED DATASET: {dataset_path}")
-        #else:
-           # self.dataset_loader = None
-            #self.using_dataset = False
+        dataset_path = get_dataset_path("interval_comparison")
+        if dataset_path and os.path.exists(dataset_path):
+            self.dataset_loader = DatasetLoader(str(dataset_path))
+            self.using_dataset = True
+            print(f"✅ Using pre-generated dataset: {dataset_path}")
+        else:
+            self.dataset_loader = None
+            self.using_dataset = False
+            print("📝 No dataset found, using dynamic parameter generation")
             #print(f"Dataset not found, using enhanced generation")
 
     def create_enhanced_hp(self, use_piezo=False, use_insula=False):
@@ -428,7 +430,7 @@ class EnhancedPiezoComparisonAnalyzer:
         for run_idx in range(self.num_runs):
             print(f"\n📄 Non-Piezo Run {run_idx + 1}/{self.num_runs}")
 
-            model_dir = os.path.join(self.output_dir, f"no_piezo_run_{run_idx + 1}")
+            model_dir = get_model_path("interval_comparison", f"standard_run_{run_idx + 1}", 0)
             start_time = time.time()
 
             stat, trainer = self._train_with_enhanced_tracking(
@@ -467,7 +469,7 @@ class EnhancedPiezoComparisonAnalyzer:
         for run_idx in range(self.num_runs):
             print(f"\n📄 Piezo Run {run_idx + 1}/{self.num_runs}")
 
-            model_dir = os.path.join(self.output_dir, f"piezo_run_{run_idx + 1}")
+            model_dir = get_model_path("interval_comparison", f"piezo_run_{run_idx + 1}", 0)
             start_time = time.time()
 
             stat, trainer = self._train_with_enhanced_tracking(
@@ -534,7 +536,7 @@ class EnhancedPiezoComparisonAnalyzer:
         for run_idx in range(self.num_runs):
             print(f"\n📄 Insula Run {run_idx + 1}/{self.num_runs}")
 
-            model_dir = os.path.join(self.output_dir, f"insula_run_{run_idx + 1}")
+            model_dir = get_model_path("interval_comparison", f"insula_run_{run_idx + 1}", 0)
             start_time = time.time()
 
             stat, trainer = self._train_with_enhanced_tracking(
